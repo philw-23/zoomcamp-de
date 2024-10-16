@@ -1,0 +1,27 @@
+services: # List all the services that will run
+  pgdatabase:
+    image: postgres:13 # Specify image name
+    environment: # Environment variables that would be passed in running of container
+      POSTGRES_USER: root
+      POSTGRES_PASSWORD: root
+      POSTGRES_DB: ny_taxi
+    volumes: # Volume mounts for data, will create directory locally if it doesn't exist!
+      # :rw is for read/write permissions
+      # Note that $PWD syntax in linux isn't supported
+      - ./data/ny_taxi_postgres_data:/var/lib/postgresql/data:rw
+    ports: # Ports
+      - "5432:5432"
+  pgadmin:
+    image: dpage/pgadmin4
+    environment:
+      PGADMIN_DEFAULT_EMAIL: admin@admin.com
+      PGADMIN_DEFAULT_PASSWORD: root
+    volumes:
+      # Note that this volume doesn't double dip
+      # It only stores the pgadmin connection data and not the data stored in the db
+      - ./data/pgadmin:/var/lib/pgadmin/:rw
+    ports:
+      - "8080:80"
+    depends_on: # Add dependency to previous container
+      # Dependency containers will start before this one if this is listed
+      - pgdatabase
