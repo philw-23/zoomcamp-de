@@ -9,15 +9,8 @@
 
     Variables must be defined in the variables.tf file to be accessible to the terraform project. Default values will
     be used during execution, or variable values must be provided at execution for the project to run. For cases in
-    development or production where you want to run with specific variable values, a .tfvars file can be created that
-    is a list of variables and values in the following syntax
-
-    [variable_name] = [variable value]
-
-    When executing terraform apply, you can add the -var-file argument to run the instance with the variables
-    specified in the file
-
-    terraform apply -var-file="<your_var_file>.tfvars"
+    development or production where you want to run with specific variable values, a .tfvars file can be created to specify
+    runtime values
 */
 variable "credentials" { # Path to service account credentials file
   description = "My Credentials"

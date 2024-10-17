@@ -42,3 +42,33 @@ To remove the project from the cloud, the following command is used to remove wh
 ```bash
 $ terraform destroy
 ```
+
+## Using `.tfvars` Files
+
+`.tfvars` files can be used to specify variable values at runtime. Having multiple versions of these
+files allows for the infrastructure to be set up in multiple different ways depending on the variable
+values. The file is a line for each required variable (or optionally non-required variables) in the
+form 
+
+```
+<variable_name> = <variable_value>
+```
+
+For the terraform project example docuemnted in this repo, our `.tfvars` file would look like this
+```
+credentials = "<path_to_your_keys>.json"
+project = "<your project name>"
+region = "<your region>"
+location = "<your location>"
+bq_dataset_name = "test_bq_dataset"
+gcs_bucket_name = "<your project name>-test-terraform-bucket"
+gcs_storage_class = "STANDARD"
+```
+
+A `-var-file` argument can then be added to `terraform plan`, `terraform apply`, and `terraform  destroy` commands to specify the variable file to use
+```bash
+$ terraform init
+$ terraform plan -var-file="<your variable file>.tfvars"
+$ terraform apply -var-file="<your variable file>.tfvars"
+$ terraform destroy -var-file="<your variable file>.tfvars"
+```
