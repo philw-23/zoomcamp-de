@@ -1,0 +1,44 @@
+services:
+  magic: # Mage container name
+    image: mageai/mageai:latest # Image to use
+    command: mage start ${PROJECT_NAME} # Command to run at initialization
+    env_file: # .env file to pull environment variables from
+      - .env
+    build:
+      context: . # Build context location - if in another directory this can be specified
+      dockerfile: Dockerfile # Configuration parameters to use for image
+    # NOTE: these will overwrite values listed in the .env file passed above
+    # Since we defined the POSTGRES parameters in the .env file, we do not need to include them here
+    environment: 
+      USER_CODE_PATH: /home/src/${PROJECT_NAME}/ # Define USER_CODE_PATH which is not referenced in .env file
+      # POSTGRES_DBNAME: ${POSTGRES_DBNAME}
+      # POSTGRES_SCHEMA: ${POSTGRES_SCHEMA}
+      # POSTGRES_USER: ${POSTGRES_USER}
+      # POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      # POSTGRES_HOST: ${POSTGRES_HOST}
+      # POSTGRES_PORT: ${POSTGRES_PORT}
+    ports: # Port for mage
+      - 6789:6789
+    volumes: # Volume mounts
+      # Create a folder for project to avoid clutter
+      - ./mage-env:/home/src/
+      - ${KEY_PATH}:/<path-to-your-keys.json> # Send GCP keys to mage container
+    restart: on-failure:5
+  postgres:
+    image: postgres:14 # Postgres image being used
+    restart: on-failure # On failure, restart the image
+    container_name: ${PROJECT_NAME}-postgres # Container name for postgres
+    env_file: # .env file to pull environment variables from
+      - .env
+    # NOTE: these will overwrite values listed in the .env file passed above
+    # Since we defined the POSTGRES parameters in the .env file, we do not need to include them here
+    # environment: # Define variables using values from .env file
+    #   POSTGRES_DB: ${POSTGRES_DBNAME}
+    #   POSTGRES_USER: ${POSTGRES_USER}
+    #   POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+    volumes: # Volume mounts for data, will create directory locally if it doesn't exist!
+      # :rw is for read/write permissions
+      # Note that $PWD syntax in linux isn't supported
+      - ./data/mage-db:/var/lib/postgresql/data:rw # Volume mount for data writes
+    ports:
+      - "${POSTGRES_PORT}:5432" # Port to use for postgres container
