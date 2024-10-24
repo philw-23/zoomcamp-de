@@ -142,6 +142,8 @@ Pgadmin should then be accessible by entering `localhost:8080` on a web browser 
 * `Connection > Username`: `root`
 * `Connection > Password`: `root`
 
+Note that if you are connecting to the postgres container from outside of the network (ex: via a local python script), you will use `localhost` for the postgres hostname
+
 ## Docker Compose
 
 Multiple docker containers can also be ran simultaneously using a docker compose file. All the parameters needed can be specified in the file and the containers will then be ran in the same network with the command

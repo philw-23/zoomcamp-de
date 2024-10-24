@@ -57,13 +57,24 @@ Blocks are independent entities that are testable on their own. Key features of 
 * Test/Assertion: will be executed on the result of the test
     * @test is the decorator for this -->
 
-## Configuring and Running a Pipeline
+## Configuring Mage
 
 It is recommended to install and use mage through docker containers, as this enables customization and versioning to be portable across machines. Mage also details some information on docker and other installation methods on their website [here](https://docs.mage.ai/getting-started/setup#docker-compose-template). In this section, we will utilize a network of a Mage container and Postgres container established using the `mage-container.yml` docker compose file. The file contains notes on the specific container configuration options to be executed on initiation
 
 The `mage-container.yml` also references the `Dockerfile` - it serves as a base configuration for the Mage container in the network. The raw file is shown below with comments and additional notes on the arguments
 
-**Add notes on Dockerfile here**
+```
+FROM mageai/mageai:latest
+
+# NOTE: this is empty for now, if we need additional packages we can install them from here
+# The mage container comes preloaded with a number of packages
+COPY requirements.txt ${USER_CODE_PATH}requirements.txt 
+
+RUN pip3 install -r ${USER_CODE_PATH}requirements.txt
+```
+* `FROM` specifies the base container to load from
+* `COPY` will copy the `requirements.txt` file to our `USER_CODE_PATH` (defined in docker compose)
+* `RUN` will run the command to install additional packages from `requirements.txt` in mage
 
 Mage may prompt during use that a newer version or update is available to install. The latest image can be pulled from docker to use with the following command
 ```bash
@@ -93,3 +104,21 @@ Our Mage/Postgres network can be initiated by running the following command. Not
 ```bash
 $ docker compose -f mage-container.yml up
 ```
+
+Upon loading mage, we initially set up a `dev` profile under the `io_config.yml` that can be found in the project files directory. We will use [jinja syntax](https://docs.coalesce.io/docs/reference/jinja/jinja-syntax/) as shown below to load our environment variables to this profile
+```yml
+dev: # Dev profile - define at bottom after default
+  POSTGRES_CONNECT_TIMEOUT: 10
+  POSTGRES_DBNAME: "{{ env_var('POSTGRES_DBNAME') }}"
+  POSTGRES_SCHEMA: "{{ env_var('POSTGRES_SCHEMA') }}"
+  POSTGRES_USER: "{{ env_var('POSTGRES_USER') }}"
+  POSTGRES_PASSWORD: "{{ env_var('POSTGRES_PASSWORD') }}"
+  POSTGRES_HOST: "{{ env_var('POSTGRES_HOST') }}"
+  POSTGRES_PORT: "{{ env_var('POSTGRES_PORT') }}"
+```
+
+The advantage of defining these variables in a profile is that the profile can then be referenced to automatically use the parameters in specific data blocks.
+
+## Example Pipeline - Write to Postgres
+
+An example pipeline for downloading taxi data and writing to Postgres using mage can be found in the `api_to_postgres` folder. Instructions on loading this into mage can be found [here](https://docs.mage.ai/guides/pipelines/importing-pipelines)

@@ -10,7 +10,9 @@ services:
     # NOTE: these will overwrite values listed in the .env file passed above
     # Since we defined the POSTGRES parameters in the .env file, we do not need to include them here
     environment: 
-      USER_CODE_PATH: /home/src/${PROJECT_NAME}/ # Define USER_CODE_PATH which is not referenced in .env file
+      # Define USER_CODE_PATH which is not referenced in .env file
+      # This is where mage will store development files for pipelines and various block types
+      USER_CODE_PATH: /home/src/${PROJECT_NAME}/ 
       # POSTGRES_DBNAME: ${POSTGRES_DBNAME}
       # POSTGRES_SCHEMA: ${POSTGRES_SCHEMA}
       # POSTGRES_USER: ${POSTGRES_USER}
@@ -22,7 +24,7 @@ services:
     volumes: # Volume mounts
       # Create a folder for project to avoid clutter
       - ./mage-env:/home/src/
-      - ${KEY_PATH}:/<path-to-your-keys.json> # Send GCP keys to mage container
+      - ${KEY_PATH}:${KEY_DEST} # Send GCP keys to mage container
     restart: on-failure:5
   postgres:
     image: postgres:14 # Postgres image being used
