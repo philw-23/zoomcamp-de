@@ -122,3 +122,24 @@ The advantage of defining these variables in a profile is that the profile can t
 ## Example Pipeline - Write to Postgres
 
 An example pipeline for downloading taxi data and writing to Postgres using mage can be found in the `api_to_postgres` folder. Instructions on loading this into mage can be found [here](https://docs.mage.ai/guides/pipelines/importing-pipelines)
+
+## Example Pipeline - Interface with GCP
+
+We will add a few variables to our `.env` file for interfacing with GCP
+* `GCP_PROJECT` is the Project ID for our GCP project
+* `GCS_LOCATION` is the location we will use for any GCS storage buckets
+
+Generally, we also note that environment variables can be accessed in Mage via python using the `os` package as shown below. Examples of this will also be shown in the `api_to_gcp` example pipeline included in this repo
+```python
+import os
+
+env_var_value = os.getenv('<your variable key>')
+```
+
+In order to authenticate to GCP with mage, we will pass the location of our mirrored service account key path as the `GOOGLE_SERVICE_ACC_KEY_FILEPATH` value in `io_config.yml`. This will allow all GCP interface connctions to authenticate using this key
+
+A bigquery dataset and gcs bucket can be created before running this pipeline, but we will perform existence checks and creation operations on. The required packages are shown below, and will be added in the `requirements.txt` file so they are installed at initialization of the docker network
+```
+google-cloud-storage
+google-cloud-bigquery
+```
