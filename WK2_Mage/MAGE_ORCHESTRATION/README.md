@@ -2,60 +2,6 @@
 
  For this course, we will be using Mage AI for orchestration of our data workflows. The structure of this section will be to utilize Mage AI to automate workflows in order to extract, transform, and load (ETL) data to a Postgres database.
  
- <!-- ## What is Orchestration?
-
- Orchestration can be defined as "a process of dependency management facilitated through automation". The data orchestrator can manage the following aspects of data pipelines:
- * Scheduling
- * Triggering
- * Monitoring
- * Resource Allocation
-
- Data workflows are built up via sequential steps. In Mage AI terms:
- * Steps = Tasks to be performed
- * Workflows = DAGs (Directed acyclic graphs)
-
- A good orchestrator handles:
- * Workflow management
- * Automation
- * Error handling
- * Data recovery
- * Monitoring + Alerting on failures
- * Resource optimization
- * Observability (visibility into every part of data pipeline)
- * Debugging of data pipelines
- * Compliance, auditing, logging
-
-## What is Mage?
-
-Mage is an open source pipeline tool for transforming and integrating data.
-
-Structure:
-* Projects (like a github repo, contains all the code for project)
-* Pieplines (these are like DAGs)
-  * Workflow that executes some data operation
-  * Contains blocks written in Python, SQL, R, etc.
-* Blocks (these are what make up transformations)
-  * Represented as .yml files
-  * Dependencies are managed through Mage
-  * Can utilize blocks in many different pipelines within a project
-* These Export, Transform, and Load data
-
-Blocks are independent entities that are testable on their own. Key features of engineering best practices include:
-* In line testing + debugging
-* Notebook style formatting
-* Transofmration in one place
-* Porting to DBT
-* Streaming
-* DAGs without duplicate functions
-
-## Structure of a Mage Block
-
-* Imports: packages needed
-* Decorator: describes what type of function is being executed
-* Function: executes an operation that returns a dataframe
-    * Only thing that will return data ran when a block is executed
-* Test/Assertion: will be executed on the result of the test
-    * @test is the decorator for this -->
 
 ## Configuring Mage
 
@@ -145,7 +91,12 @@ GOOGLE_SERVICE_ACC_KEY_FILEPATH: "{{ env_var('KEY_DEST') }}"
 GOOGLE_LOCATION: "{{ env_var('GCS_LOCATION') }}" # Optional
 ```
 
-A bigquery dataset and gcs bucket can be created before running this pipeline, but we will perform existence checks and creation operations using python within mage. These functions can be found in the `utils.py` in this repo. Instructions on loading custom files into your mage pipeline can be found in the docs [here](https://docs.mage.ai/development/dependencies/custom-files). The required packages for these operations are shown below, and will be added in the `requirements.txt` file so they are installed at initialization of the docker network
+A bigquery dataset and gcs bucket can be created before running this pipeline, but we will perform existence checks and creation operations using python within mage. These functions can be found in the `shared.py` in this repo. Instructions on loading custom files into your mage pipeline can be found in the docs [here](https://docs.mage.ai/development/dependencies/custom-files). The command to import these functions for use in this mage project is
+```python
+from mage_zoomcamp.utils.shared import validate_bigquery, validate_bucket
+```
+
+The required packages for the create/validate operations are shown below, and will be added in the `requirements.txt` file so they are installed at initialization of the docker network
 ```
 google-cloud-storage
 google-cloud-bigquery

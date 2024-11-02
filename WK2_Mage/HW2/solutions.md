@@ -21,23 +21,13 @@ postgres_schema: mage
 postgres_table: green_taxi
 ```
 
-<!-- The goal will be to construct an ETL pipeline that loads the data, performs some transformations, and writes the data to a database (and Google Cloud!).
+To export to GCS, we will add another two variables for `bucket_suffix` and `bucket_table_name` that we will use to load our partitioned bucket to GCS. We will utilize the `validate_bucket` function from our `shared.py` file to create this bucket
+```
+bucket_suffix: green-taxi-bucket
+bucket_table_name: green_taxi_data
+```
 
-- Create a new pipeline, call it `green_taxi_etl`
-- Add a data loader block and use Pandas to read data for the final quarter of 2020 (months `10`, `11`, `12`).
-  - You can use the same datatypes and date parsing methods shown in the course.
-  - `BONUS`: load the final three months using a for loop and `pd.concat`
-- Add a transformer block and perform the following:
-  - Remove rows where the passenger count is equal to 0 _and_ the trip distance is equal to zero.
-  - Create a new column `lpep_pickup_date` by converting `lpep_pickup_datetime` to a date.
-  - Rename columns in Camel Case to Snake Case, e.g. `VendorID` to `vendor_id`.
-  - Add three assertions:
-    - `vendor_id` is one of the existing values in the column (currently)
-    - `passenger_count` is greater than 0
-    - `trip_distance` is greater than 0
-- Using a Postgres data exporter (SQL or Python), write the dataset to a table called `green_taxi` in a schema `mage`. Replace the table if it already exists.
-- Write your data as Parquet files to a bucket in GCP, partioned by `lpep_pickup_date`. Use the `pyarrow` library!
-- Schedule your pipeline to run daily at 5AM UTC. -->
+To add the refresh, we set a schedule trigger to run at 5AM UTC
 
 ## Question 1. Data Loading
 
@@ -64,11 +54,6 @@ From our print statement in the transformer block, we see that **4 columns** had
 
 ## Question 6. Data Exporting
 
-<!-- Once exported, how many partitions (folders) are present in Google Cloud?
-
-* 96
-* 56
-* 67
-* 108 -->
+After exporting, we see that there are 95 individual date files present, with the observation that there are three dates that are not in 2020. If we count the additional top level folder, there are **96 folders** created in our cloud bucket
 
 
