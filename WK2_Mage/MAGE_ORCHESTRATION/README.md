@@ -129,17 +129,41 @@ We will add a few variables to our `.env` file for interfacing with GCP
 * `GCP_PROJECT` is the Project ID for our GCP project
 * `GCS_LOCATION` is the location we will use for any GCS storage buckets
 
-Generally, we also note that environment variables can be accessed in Mage via python using the `os` package as shown below. Examples of this will be shown in the example `api_to_gcs` and `gcs_to_bigquery` pipelines in this section
+Two pipelines are present in this repo
+* `api_to_gcs` contains code for writing our nyc taxi data to both a partitioned and unpartitioned file in a GCS bucket
+
+Generally, we also note that environment variables can be accessed in Mage via python using the `os` package as shown below. Examples of this will be shown in the example `api_to_gcs` and `gcs_to_bigquery` pipelines
 ```python
 import os
 
 env_var_value = os.getenv('<your variable key>')
 ```
 
-In order to authenticate to GCP with mage, we will pass the location of our mirrored service account key path as the `GOOGLE_SERVICE_ACC_KEY_FILEPATH` value in `io_config.yml`. This will allow all GCP interface connctions to authenticate using this key
+In order to authenticate to GCP with mage, we will pass the location of our mirrored service account key path as the `GOOGLE_SERVICE_ACC_KEY_FILEPATH` value in `io_config.yml`. This will allow all GCP interface connctions to authenticate using this key via the default profile. To avoid complications and standardize locations for our datasets, we will also set the `GOOGLE_LOCATION` in the default profile to use a location from our `.env` file. These updates are shown below, and note these environment variables were added after the fact to our `.env` file and are not in `dev.env`
+```yaml
+GOOGLE_SERVICE_ACC_KEY_FILEPATH: "{{ env_var('KEY_DEST') }}"
+GOOGLE_LOCATION: "{{ env_var('GCS_LOCATION') }}" # Optional
+```
 
 A bigquery dataset and gcs bucket can be created before running this pipeline, but we will perform existence checks and creation operations using python within mage. These functions can be found in the `utils.py` in this repo. Instructions on loading custom files into your mage pipeline can be found in the docs [here](https://docs.mage.ai/development/dependencies/custom-files). The required packages for these operations are shown below, and will be added in the `requirements.txt` file so they are installed at initialization of the docker network
 ```
 google-cloud-storage
 google-cloud-bigquery
 ```
+
+## Pipeline Variables
+Run variables can be defined for a pipeline and can be accessed via code blocks within it. Mage has some documentation [here](https://docs.mage.ai/getting-started/runtime-variable) on defining/accessing these. Generally, these are defined within the `Variables` section of the right hand menu when edited a pipeline and can be accessed in python blocks via `**kwargs` as shown below
+```python
+var_value = kwargs['<var_key>']
+```
+
+The `gcs_to_bigquery` pipeline in this repo shows an example of a variable being used for the bigquery dataset name and bigquery table name. The values used are shown below
+```
+bq_dataset_name: ny_taxi
+bq_dataset_table: yellow_cab_data
+```
+
+## Running Mage with Terraform
+
+Mage has some supporting documentation for this shown [here](https://docs.mage.ai/production/deploying-to-cloud/using-terraform), and some of the course videos describe the end result in more detail. This is not covered in this repo, and will instead be explored more in future projects
+
