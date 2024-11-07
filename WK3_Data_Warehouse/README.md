@@ -35,9 +35,11 @@ bigquery-public-data.new_york_citibike.citibike_stations
 LIMIT 100
 ```
 
+## Partioning and Clustering Data
+
 ### Partitioning Data
 
- Data in BigQuery can be paritioned on specific columns boost performance. Generally these should be columns that commonly appear as ranges or filters, such as `creation_date` in a table related to Stack Overflow posts. This enables BigQuery to ignore processing for large chunks of data if a partition is filtered out, which can lower costs and increase speed. The below command can be used to create a partitioned table in BigQuery
+ Data in BigQuery can be paritioned on specific columns boost performance. Generally these should be columns that commonly appear as ranges or filters, such as `creation_date` in a table related to Stack Overflow posts. This enables BigQuery to ignore processing for large chunks of data if a partition is filtered out, which can lower costs and increase speed. Partitioning generally does not provide much benefit and may in fact reduce performance for datasets < 1 GB in size. The below command can be used to create a partitioned table in BigQuery
  ```sql
 CREATE OR REPLACE TABLE '<gcp project>.<bigquery dataset name>.<table name>'
 PARTITION BY
@@ -57,9 +59,26 @@ WHERE table_name = '<table name>'
 
 This view can be useful for viewing if there is bias within partitions - cases where certain partitions are getting far more rows than others. If there is a heavy bias towards specific partitions and data from these partitions is desired in many query results, there may not be a lot of benefit in the partition.
 
+Data in BigQuery can be partitioned using the following column types
+* Time Unit column - Daily (default), Hourly, Monthly, Yearly
+* Ingestion Time
+fdsdgfddafg
+The number of partitions is limited to 4000, so certain partitions may need to be set to expire (details [here](https://cloud.google.com/bigquery/docs/managing-partitioned-tables)) if using an hourly or daily partition on large datasets. BigQuery will delete data from a partition when it expires
+
 ### Clustering Data
 
-Clustering is a method which sorts groups within a dataset so that the rows are next to each other. Using the Stack Overflow example again, rows with the same tags ("Android", "Linux", "SQL", etc.) would be clustered together in the dataset. If the data is partitioned, clusters will also exist within each partition. This is particularly helpful with columns that are frequently used in `WHERE` clauses, as certain clusters can avoid being processed to lower query costs and increase performance. We can create a cluster by using the `CLUSTER BY` argument in our `CREATE OR REPLACE TABLE` command
+Clustering is a method which sorts groups within a dataset so that the rows are colocated next to each other. Up to four columns can be specified for clustering in a dataset. When specifying cluster columns, the data will be sorted in the order of the columns provided. Clustering data improves filter and aggregate queries, and similarly to partitioning does not provide benefit for smaller datasets (< 1 GB in size). Cluster columns can be of the following datatypes:
+* DATE
+* BOOL
+* GEOGRAPHY
+* INT64
+* NUMERIC
+* BIGNUMERIC
+* STRING
+* TIMESTAMP
+* DATE
+
+Returning to the Stack Overflow example again, rows with the same tags ("Android", "Linux", "SQL", etc.) would be clustered together in the dataset if a cluster was set on this column. If the data is partitioned, clusters will also exist within each partition. This is particularly helpful with columns that are frequently used in `WHERE` clauses, as certain clusters can avoid being processed to lower query costs and increase performance. We can create a cluster by using the `CLUSTER BY` argument in our `CREATE OR REPLACE TABLE` command
 ```sql
 CREATE OR REPLACE TABLE '<gcp project>.<bigquery dataset name>.<table name>'
 CLUSTER BY
@@ -68,4 +87,56 @@ AS
 -- Example SQL command to load data 
 SELECT * FROM <gcp project>.<bigquery dataset name>.<table name>
 ```
-It is not shown in the above command, but it should be noted that both clustering and partitioning can be used on the same table
+
+When new data is added to a dataset, it will impact the clusters that have already been created. Generally this impacts the sort properties the cluster adds to the table. To account for this, BigQuery will perform automatic re-clustering in the background to repair the sort properties. There is no cost incurred from BigQuery as a result of this
+
+### Partitioning vs. Clustering Datasets
+
+Generally, clustering may be a better fit for your data than partitioning (or should be combined with partitioning) if:
+* You need more granularity than can be provided alone by partitioning data
+* You do not need partition level management - ex: deleting, creating, moving between storage
+* Queries will use filters or aggregation on multiple columns
+* Cardinality of the number of values in a column or column group is large
+
+Generally, partitioning will be a better fit for your data than clustering if:
+* Partitioning results in large data groupings (> 1 GB in size) 
+* You require the ability to do partition level management
+* Partitioning creates a manageable number of data groupings (< 4000)
+* Data operations do not impact a large number of created partitions in the dataset
+
+## Best Practices in BigQuery
+
+BigQuery optimization comes from minimizing cost of queries and increasing performance. There is documentation on [cost controls](https://cloud.google.com/bigquery/docs/best-practices-costs) from google here, but some general strategies for cost reduction of queries are shown below
+* Avoid using `SELECT *` when pulling data
+* Perform a [dry run](https://cloud.google.com/bigquery/docs/running-queries#dry-run) of queries before executing them
+* Use clustering and partitioning in tables
+* Utilize streaming inserts to tables with caution
+* Materialize query results in stages - ex: utilize a temp table instead of using a CTE in multiple places
+
+For query performance, the following are good strategies for optimization:
+* Filter on partitioned columns
+* Denormalize data
+  * Details are linked above - but involves including key columns or aggregations from other tables in a commonly queried table
+* Use of external data sources should be minimized
+* Filter and reduce data before using a join
+* Do not treat `WITH` clauses as prepared statements
+* Avoid oversharding ([sharding](https://www.digitalocean.com/community/tutorials/understanding-database-sharding) detailed here) tables 
+* Avoid JavaScript user defined functions (UDFs)
+* Use approximate aggregation functions (HyperLogLog++)
+* Perform `ORDER BY` in final query
+* Optimize join patterns
+* Place tables in the following order (by row count)
+  * Largest Table
+  * Smallest Table
+  * Remaining Tables in descending size
+
+## BigQuery Internals
+
+BigQuery stores data in a columnar format, utilizing a cheap data store known as Colossus. This separation from the compute engine helps to keep storage cost of data low. Within BigQuery data centers, there is a network layer linked to Colossus known as Jupiter that provides ~ 1 TB/s network speeds, which enables fast transfer of data to the compute engine. The query execution engine is known as Dremel - which divides your query into a tree structure that separates your query in a way that enables various nodes to execute pieces of the query
+
+Conversely to something like a `.csv` file that stores records in a **row-oriented** format, BigQuery stores data in Colosus with a **column-oriented** format where rows may appear in multiple places for each column. This is advantageous as most queries only target a few columns, and will help improve the performance of aggregations performed on specific columns. Internally when a query in row-oriented form is provided to BigQuery, it converts it to a column-oriented version that is passed down through Mixer and Leaf nodes to be executed against specific chunks of the dataset in Colossus. Results from Colossus are then passed back through the Leaf and Mixer nodes to produce the overall result for the original query. Borg (google precursor to Kubernetes)is the overall orchestration engine that allocates hardware resources for the Mixer and Leaf nodes. The breakdown of the query across multiple nodes is the main reason that BigQuery can provide good performance on large datasets. 
+
+Below are some good resources describing the internals of BigQuery in more detail:
+* [BigQuery under the hood](https://cloud.google.com/blog/products/bigquery/bigquery-under-the-hood)
+* [Google BigQuery 101](https://sarasanalytics.com/blog/what-is-google-bigquery/#Google_BigQuery_Architecture)
+   
