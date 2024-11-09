@@ -1,0 +1,8 @@
+apache-airflow-providers-google
+google-auth
+google-cloud-storage
+google-cloud-bigquery
+pyarrow
+requests
+lxml
+beautifulsoup4
