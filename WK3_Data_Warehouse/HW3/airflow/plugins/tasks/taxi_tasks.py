@@ -21,32 +21,39 @@ def pull_taxi_data(taxi_type, years, months):
     soup = BeautifulSoup(resp.text, 'lxml') # Parse URL results
     urls = soup.find_all('a', href=True) # Get all URLs through anchors
 
-    # Create re search object
+    # Month string for regex (same for all years)
     month_string = "|.*-".join(months) # Create a string for months, | is or in regex
-    year_string = "|.*_".join(years) # Create a string for years, | is or in regex
-    # Build regex
-    # (?=.*-{month_string}) looks for a match on month preceeded by dash
-    # (?=.*{year_string}) looks for a match on year preceeded by underscore
-    # (?=.*{taxi_type}) looks for a match on taxi type
-    # .*parquet$ looks for "ends with .parquet"
-    full_string = (
-        f"(?=.*-{month_string})(?=.*_{year_string})(?=.*{taxi_type}).*parquet$"
-    )
-    rgx = re.compile(full_string) # Compile regex
+    
+    # Iterate over all years
+    url_dict = {} # Dictionary for storing results by year
+    for year in years:
+        # Year string for regex
+        year_string = "|.*_".join(years) # Create a string for years, | is or in regex
+        # Build regex
+        # (?=.*-{month_string}) looks for a match on month preceeded by dash
+        # (?=.*{year_string}) looks for a match on year preceeded by underscore
+        # (?=.*{taxi_type}) looks for a match on taxi type
+        # .*parquet$ looks for "ends with .parquet"
+        full_string = (
+            f"(?=.*-{month_string})(?=.*_{year_string})(?=.*{taxi_type}).*parquet$"
+        )
+        rgx = re.compile(full_string) # Compile regex
 
-    # Get list of URLs
-    download_urls = []
-    for check_url in urls: # Iterate over everything
-        url = check_url['href'].strip() # Get URL from href
-        if re.match(rgx, url): # Check for a match
-            download_urls.append(url)
+        # Get list of URLs
+        download_urls = []
+        for check_url in urls: # Iterate over everything
+            url = check_url['href'].strip() # Get URL from href
+            if re.match(rgx, url): # Check for a match
+                download_urls.append(url)
 
-    # Print matches
-    print(f'Matched {len(download_urls)} URLs')
-    print(f'URL List: {download_urls}')
+        # Add to dictionary
+        url_dict[year] = download_urls
+
+        # Print matches
+        print(f'For {year} - matched {len(download_urls)} URLs')
 
     # Return URL list
-    return download_urls
+    return url_dict
 
 '''
     Function to validate the existence of GCS bucket and create if not. Assumes
@@ -71,12 +78,15 @@ def validate_bucket(project_id, bucket_name, gcs_location, storage_class='STANDA
 
     if bucket.exists(): # If it exists - check for directory files that exist
         print(f'Bucket {bucket_name} already exists - getting existing folders!')
-        blobs = client.list_blobs(bucket_name, delimiter='/') # Get list of blobs
-        list(blobs) # Need to run this to access prefixes: https://github.com/googleapis/python-storage/issues/1208
+        blobs = bucket.list_blobs() # Get list of blobs
         bucket_folders = [] # For appending prefixes
-        for prefix in blobs.prefixes:
-            bucket_folders.append(prefix.replace('/', '')) # Append stripped location
-        
+        for blob in blobs:
+            folder_path = blob.name.rsplit('/', 1)[0] # Splits off last piece
+            bucket_folders.append(folder_path)
+
+        # Drop duplicates!
+        bucket_folders = list(set(bucket_folders))
+
     else:
         bucket = client.create_bucket(bucket_name)
         print(f'Bucket {bucket_name} successfully created!')
@@ -91,9 +101,10 @@ def validate_bucket(project_id, bucket_name, gcs_location, storage_class='STANDA
         project_id: project where bucket lives
         bucket_name: bucket to write the data to
         bucket_folders: list of existing bucket folders to check before writing
+        force_overwrite: overwrite all data, ignore checks on existence
 '''
 @task
-def write_urls_to_bucket(url_list, project_id, bucket_name, bucket_folders):
+def write_urls_to_bucket(url_list, project_id, bucket_name, bucket_folders, force_overwrite):
     # Import required packages
     import time
     import requests
@@ -114,38 +125,44 @@ def write_urls_to_bucket(url_list, project_id, bucket_name, bucket_folders):
     # Set start time
 
     # Iterate over all URLs as write to fs
-    for url in url_list:
-        # Declare start
-        start_time = time.time()
-        print(f'Writing {url} to GCS bucket')
+    for year, url_vals in url_list.items():
+        print(f'Writing data for year {year}')
 
-        # Create base table name
-        table_name = url.split('/')[-1] # Extract table name from end of url
-        table_name = table_name.replace('.parquet', '') # Replace as we are writing in chunks
+        # Iterate over all years
+        for url in url_vals:
+            # Declare start
+            start_time = time.time()
+            print(f'Writing {url} to GCS bucket')
 
-        # Check if we already have table in GCS
-        if table_name in bucket_folders: # Check if we already have folder
-            print('Data bucket for URL already exists - skipping')
-            continue
+            # Create base table name
+            table_name = url.split('/')[-1] # Extract table name from end of url
+            table_name = table_name.replace('.parquet', '') # Replace as we are writing in chunks
+            folder_path = year + '/' + table_name # For checking existence
 
-        # Get the file and write in mem
-        file_pull = requests.get(url)
-        file_pull.raise_for_status() # Ensure success
-        parquet_data = BytesIO(file_pull.content) # In mem read
-        parquet_file = pq.ParquetFile(parquet_data) # Get parquet table
+            # Check if we already have table in GCS
+            # Check if we already have folder and are not force overwriting
+            if folder_path in bucket_folders and not force_overwrite:
+                print(f'Data bucket {folder_path} for URL already exists - skipping')
+                continue
 
-        # Iterate over chunks
-        batches = parquet_file.iter_batches(batch_size=chunk_size)
-        for idx, chunk in enumerate(batches):
-            print(f'Writing chunk {str(idx)} of URL')
-            chunk.to_pandas().to_parquet('./tmp_chunk.parquet') # Write to local file
-            blob_name = f'{table_name}/chunk_{str(idx)}.parquet' # chunk name for write
-            blob = bucket.blob(blob_name) # Define blob for upload
-            blob.upload_from_filename('./tmp_chunk.parquet') # Upload blob from filename
+            # Get the file and write in mem
+            file_pull = requests.get(url)
+            file_pull.raise_for_status() # Ensure success
+            parquet_data = BytesIO(file_pull.content) # In mem read
+            parquet_file = pq.ParquetFile(parquet_data) # Get parquet table
 
-        # Print success
-        run_time = round(time.time() - start_time, 2)
-        print(f'Successfully wrote {url} to GCS bucket in {run_time}s')
+            # Iterate over chunks
+            batches = parquet_file.iter_batches(batch_size=chunk_size)
+            for idx, chunk in enumerate(batches):
+                print(f'Writing chunk {str(idx)} of URL')
+                chunk.to_pandas().to_parquet('./tmp_chunk.parquet') # Write to local file
+                blob_name = f'{year}/{table_name}/chunk_{str(idx)}.parquet' # chunk name for write
+                blob = bucket.blob(blob_name) # Define blob for upload
+                blob.upload_from_filename('./tmp_chunk.parquet') # Upload blob from filename
+
+            # Print success
+            run_time = round(time.time() - start_time, 2)
+            print(f'Successfully wrote {url} to GCS bucket in {run_time}s')
 
     # Fully complete
     if os.path.exists('./tmp_chunk.parquet'):

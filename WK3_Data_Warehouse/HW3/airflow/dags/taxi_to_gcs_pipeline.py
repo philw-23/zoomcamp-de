@@ -11,9 +11,10 @@ from tasks.taxi_tasks import (
 # Set default params for DAG
 default_params={
     'months': ['01', '02', '03', '04', '05', '06', '07', '08', '09',
-                '10', '11', '12'],
-    'years': ['2019'],
-    'taxi_type': 'green'
+                '10', '11', '12'], # Months to pull data for
+    'years': ['2022'], # Years to pull data for
+    'taxi_type': 'green', # Taxi type to pull data for
+    'force_overwrite': False # Overwrite all data - ignore checks on existence
 }
 
 with DAG(
@@ -28,7 +29,7 @@ with DAG(
     # GCP variables
     GCP_PROJECT = os.environ.get('GCP_PROJECT_ID')
     GCS_LOCATION = os.environ.get('GCP_LOCATION')
-    BUCKET_NAME = GCP_PROJECT + '-' + dag.params['taxi_type'] + '-bucket-2019'
+    BUCKET_NAME = GCP_PROJECT + '-' + dag.params['taxi_type'] + '-taxi-data'
 
     # Validate bucket and get folders
     bucket_folders = validate_bucket(
@@ -49,7 +50,8 @@ with DAG(
         url_list=url_list,
         project_id=GCP_PROJECT,
         bucket_name=BUCKET_NAME,
-        bucket_folders=bucket_folders
+        bucket_folders=bucket_folders,
+        force_overwrite=dag.params['force_overwrite']
     )
 
     # Sequence events
