@@ -2,7 +2,12 @@
 
 ## Setup
 
-The airflow DAG `taxi_to_gcs_pipeline` has been set up to pull the 2022 green taxi data from the NYC taxi website and write it to a GCS bucket. The following input parameters are available for the DAG
+Our airflow instance can be activated to run DAGs with the following command
+```bash
+$ docker compose -f ~/zoomcamp-de/airflow/docker-compose.yml up
+```
+
+The DAG `taxi_to_gcs_pipeline` has been set up to pull the 2022 green taxi data from the NYC taxi website and write it to a GCS bucket. The following input parameters are available for the DAG
 ```
 {
     'years': ['2022'], # String list of years to pull data for
@@ -12,7 +17,7 @@ The airflow DAG `taxi_to_gcs_pipeline` has been set up to pull the 2022 green ta
 }
 ```
 
-The DAGwill scrape the URLs from the website, validate the existence of our bucket (and create it if now), and then write the data to the bucket. The data is written in chunks with a folder hierarchy of `<year>/<month file>`, and will skip writing data if a matching structure already exists to save time. All data can be forced to be written by setting the DAG parameter `force_overwrite=True`. The corresponding tasks for the DAG are present in the `plugins/tasks/taxi_tasks.py` file
+The DAG will scrape the URLs from the website, validate the existence of our specified GCS bucket (create it if it doesn't exist), and write the specified data to the bucket. The data is written in chunks to a folder hierarchy of `<year>/<month file>`, and will skip writing data if a matching folder structure already exists. All data can be forced to be written by setting the DAG parameter `force_overwrite=True`. The corresponding tasks for the DAG are present in the `plugins/tasks/taxi_tasks.py` file
 
 Commands for answers in this HW will be provided using both google cloud console commands and python API calls. The below commands will create the BigQuery external table from our GCS bucket and the standard BigQuery table from our external table
 
@@ -96,14 +101,14 @@ print(f'Standard table {dataset_name}.{local_table_name} successfully created')
 
 **Note:** before running the python command, you may need to run the following command unless `GOOGLE_APPLICATION_CREDENTIALS` is defined in your `.env` file
 ```bash
-$ export GOOGLE_APPLICATION_CREDENTIALS='<path to your key>.json
+$ export GOOGLE_APPLICATION_CREDENTIALS='<path to your key>.json'
 ```
 
 Further python code in this HW assumes that all `.env` variables are present and the dataset/tables have been created
 
 ## Question 1:
 
-The following code will calculate the total count of records in the 2022 green taxi data. The python code assumes all `.env
+The following code will calculate the total count of records in the 2022 green taxi data
 
 Console:
 ```sql
@@ -200,7 +205,7 @@ sql_query = f'''
 query = client.query(sql_query, job_config=job_config)
 print(f'Standard query will process {query.total_bytes_processed / (1024 * 1024)} megabytes')
 ```
-**Note:** the `dry_run` argument to job config gives estimation on data to process without returning any data
+**Note:** the `dry_run` argument to job config gives a data processing estimate without returning any data
 
 Both results indicate that the estimated amount of data to be processed will be **0 MB for the External Table and 6.41MB for the Materialized Table**
 
@@ -253,7 +258,7 @@ Both results indicate that **1,622** records have a fare amount of $0
 
 ## Question 4:
 
-The optimized strategy for ordering results by PULocationID and filtering based on lpep_pickup_datetime is to **cluster on PULocationID and partition by lpep_pickup_datetime (with a daily partition)**. Since we are frequently filtering on lpep_pickup_datetime by day, this will be applied in a `WHERE` clause in our queries. As a result, by paritioning on lpep_pickup_datetime (daily) we can ignore reading chunks of data that aren't applicable to improve performance and reduce cost. By clustering on PULocationID, we will get the data presorted together by this column in each of our partitions, similar to an `ORDER BY` clause
+The optimized strategy for ordering results by PULocationID and filtering based on lpep_pickup_datetime is to **cluster on PULocationID and partition by lpep_pickup_datetime (with a daily partition)**. Filters are applied in a `WHERE` clause in our SQL queries, thus if we are frequently filtering on lpep_pickup_datetime, paritioning allows us to ignore processing chunks of data that aren't applicable in order to improve performance and reduce cost. Sorting is associated with `ORDER BY` clauses in SQL queries, and clustering will group sets of data next to each other within partitions based on the column provided. Thus if we are frequently sorting by PULocationID, clustering on this column can provide a performance boost to our queries 
 
 The following commands will create the partitioned and clustered dataset in BigQuery
 
@@ -303,8 +308,7 @@ print(f'Created clustered/paritioned table {dataset_name}.{destination_table}')
 
 ## Question 5:
 
-The following queries will provide the distinct PULocationID between lpep_pickup_datetime
-06/01/2022 and 06/30/2022 (inclusive), and for the python code include the dry run results for total memory usage
+The following queries will provide the amount of data processed for querying records with lpep_pickup_datetime between 06/01/2022 and 06/30/2022 (inclusive)
 
 Console:
 ```sql
