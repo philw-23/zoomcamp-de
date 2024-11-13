@@ -11,6 +11,7 @@ RUN apt-get update -qq && apt-get install vim -qqq
 # Run below as airflow
 USER airflow
 COPY requirements.txt .
+RUN python3 -m pip install --upgrade pip wheel setuptools 
 RUN pip install --no-cache-dir -r requirements.txt
 
 # Set working directory

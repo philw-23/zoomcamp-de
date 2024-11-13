@@ -1,0 +1,14 @@
+apache-airflow
+apache-airflow-providers-google
+apache-airflow-providers-common-sql
+google-auth
+google-cloud-storage
+google-cloud-bigquery
+pandas
+pyarrow
+requests
+lxml
+beautifulsoup4
+dbt-core
+dbt-bigquery
+dbt-postgres
