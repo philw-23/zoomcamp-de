@@ -89,7 +89,7 @@ DBT_PROFILE_DEST=${DBT_PROFILES_DIR}/profiles.yml'
 * `DBT_PROFILE_SOURCE` is the local location of your `profiles.yml` file created by DBT when initializing a project
   * By default, this is stored in `~/.dbt/profiles.yml`, but can be moved to a different location specified by the `DBT_PROFILES_DIR` environment variable
 * `DBT_PROFILES_DIR` is the folder location where dbt will search for the `profiles.yml` file
-* `DBT_PROFILES_DIR` is destination folder of `profiles.yml` (including filename) in airflow 
+* `DBT_PROFILE_DEST` is destination folder of `profiles.yml` (including filename) in airflow 
 
 **Note:** if there are multiple dbt models being loaded, additional variables for `DBT_DATASET` can be added for each model. The `DBT_PROFILE_SOURCE` and `DBT_PROFILE_DEST` only need to be defined once, assuming additional profile configurations are stored in the `profiles.yml` file
 
