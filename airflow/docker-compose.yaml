@@ -109,6 +109,11 @@ x-airflow-common:
     - ./plugins:/opt/airflow/plugins
     - ./dbt:/opt/airflow/dbt
     - ${GCP_KEY_SOURCE}:${GCP_KEY_DEST}:ro # Specify read only
+    #################################
+    # CHANGE (ADD - If running dbt)
+    #################################
+    # Volume mopunt profiles.yml
+    - ${DBT_PROFILE_SOURCE}:${DBT_PROFILE_DEST}
   user: "${AIRFLOW_UID:-50000}:0"
   depends_on:
     &airflow-common-depends-on

@@ -34,6 +34,12 @@ dbt-core
 dbt-bigquery
 ```
 
+**Note:** if you are having difficulty with package version resolution when installing `requirements_local.txt`, the following commands can be ran to install each package individually. This may help resolve issues with the installation trying to check compatibility of all packages simultaneously
+```bash
+$ sudo chmod +x ./shell_pip_install.sh
+$ ./shell_pip_install.sh
+```
+
 ### Airflow Configuration
 
 Airflow adds certain folders to the `PYTHONPATH` such that data between them is transferrable and accessible via import calls. We will create these three folders in our airflow directory
@@ -69,6 +75,34 @@ $ docker compose up airflow-init
 ```
 
 The `docker compose up` command can then be usef to run the container going forward. The airflow UI can be accessed from `localhost:8080` when the container is running
+
+### Adding DBT Models
+
+The following additional environment variables should be populated in the `.env` file before launching the airflow container
+```bash
+DBT_DATASET='<your big query dataset name>'
+DBT_PROFILE_SOURCE='<path to your profiles file>.yml'
+DBT_PROFILES_DIR='<path to destination folder for profiles.yml>'
+DBT_PROFILE_DEST=${DBT_PROFILES_DIR}/profiles.yml'
+```
+* `DBT_DATASET` is the name of the model dataset to connect to
+* `DBT_PROFILE_SOURCE` is the local location of your `profiles.yml` file created by DBT when initializing a project
+  * By default, this is stored in `~/.dbt/profiles.yml`, but can be moved to a different location specified by the `DBT_PROFILES_DIR` environment variable
+* `DBT_PROFILES_DIR` is the folder location where dbt will search for the `profiles.yml` file
+* `DBT_PROFILES_DIR` is destination folder of `profiles.yml` (including filename) in airflow 
+
+**Note:** if there are multiple dbt models being loaded, additional variables for `DBT_DATASET` can be added for each model. The `DBT_PROFILE_SOURCE` and `DBT_PROFILE_DEST` only need to be defined once, assuming additional profile configurations are stored in the `profiles.yml` file
+
+The following should be added to the `docker-compose.yml` file to volume mount the `profiles.yml` file in airflow
+```yml
+volumes:
+  ...
+  - ${DBT_PROFILE_SOURCE}:${DBT_PROFILE_DEST}
+```
+
+A `profile.yml` file must exist locally prior to initialization for the mount to be successful. If you have not created any models locally for development, it is best to comment out the above dbt items in your `docker-compose.yml` file until the local models are created
+
+Examples used in this course for creating BigQuery and postgres dbt models can be found in the WK4_Analytics_Engineering section notes
 
 ## Sample DAG
 

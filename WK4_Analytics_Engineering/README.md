@@ -31,3 +31,36 @@ A useful representation of Kimball's modeling architecture is the kitchen analog
 * Presentation Area (Dining Hall)
   * Final data presentation
   * Broad user access by stakeholders
+
+## Setting up dbt Models
+
+All local models for this course will be defined using the `airflow-env` in the `airflow` directory. The models are then mounted in docker to be accessible for use when running airflow 
+
+### Creating a BigQuery dbt Model
+
+Before creating a local model, we want to ensure our `.env` variables are set so we can utilize them in our project initialization with jinja notation. The following commands will export the environment variables in the current terminal session, with the latter command setting our `GOOGLE_APPLICATION_CREDENTIALS` variable for local GCP authentication
+```bash
+$ set -o allexport && source ~/zoomcamp-de/airflow/.env && set +o allexport
+$ export GOOGLE_APPLICATION_CREDENTIALS=${GCP_KEY_SOURCE}
+```
+
+**Note** these will need to be ran in future sessions prior to any local development being performed. Local development sessions should also not be used for running airflow to prevent conflicts in environment variable definitions
+
+We can create a local model by navigating to our `dbt/` folder and initializing, ensuring that our `airflow-env` is activated
+```bash
+$ source ~/zoomcamp-de/airflow/bin/activate
+$ cd ~/zoomcamp-de/airflow/dbt/
+$ dbt init
+```
+The following responses should be provided 
+* `Enter a name for your project (letters, digits, underscore):` `<enter desired project name>`
+* `Which database would you like to use?`: enter `2` for BigQuery
+* `Desired authentication method option:` enter `1` for OAUTH
+  * This will enable authentication just by setting the `GOOGLE_APPLICATION_CREDENTIALS` variable
+* `project (GCP project id):` `{{ env_var('GCP_PROJECT_ID') }}`
+* `dataset (the name of your dbt dataset):` `{{ env_var('DBT_DATASET') }}`
+* `threads (1 or more)`: `1`
+* `job_execution_timeout_seconds [300]:` any value, or enter for default
+* `Desired location option`: `1` for US, `2` for EU
+
+You can then test a successfull setup by entering your project and running the `dbt debug` command
