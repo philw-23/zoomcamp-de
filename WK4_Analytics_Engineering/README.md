@@ -42,7 +42,30 @@ WIP
 
 ### Configuration File - dbt_project.yml
 
-WIP
+The `dbt_project.yml` file indicates to dbt that a directory is a valid dbt project, and provides key information on how to execute the project. Full documentation from dbt on the contents and options for this file can be found [here](https://github.com/dbt-labs/dbt-cloud-snowflake-demo-template/blob/main/dbt_project.yml)
+
+ 
+This [link](https://github.com/dbt-labs/dbt-cloud-snowflake-demo-template/blob/main/dbt_project.yml) provides a practical example file with common configuration parameters. The key features of this file are highlighted below, with the comments in the link providing additional details on other features
+
+1) `name: 'my_snowflake_dbt_project'` provides the name of the initialized project
+2) `profile: 'snowflake_demo_project'` is the profile name from `profiles.yml` (detailed below) that dbt uses for authentication
+3) `target-path: 'target'` represents the destination where dbt will store JSON artifacts and compiled SQL
+4) `models` tells dbt how to build models, including where to build them, and what schema to write the 
+
+For the models section specifically, below is an example from the linked file with some additional customizations that can be provided (some of the snowflake specific parameters are removed - they can be found [here](https://docs.getdbt.com/reference/resource-configs/snowflake-configs) if interested)
+```yml
+  my_snowflake_dbt_project: # Project name that matches name parameter from above
+      staging: # signifies models stored in the models/staging folder
+          +materialized: view
+          schema: staging
+          tags: "daily"
+```
+* `+materialized` indicates how the model result should be persisted in the target data warehouse
+* `schema` is a schema addon for all models stored in the specified folder (in this case `staging`)
+  * It will apply a suffix to the `schema` parameter defined in `profiles.yml` file for the project
+  * For example if our `schema` in `profiles.yml` for this project was `analytics`, models in the `staging` folder would be build in a `analytics_staging` schema
+* `tags` are values applied to a resource that can be used via resource selection
+  * For example, `dbt run --select tag:daily` would run all models in `staging` as they have this tag assigned
 
 ### Configuration File - schema.yml
 
@@ -87,7 +110,7 @@ mr-robot:
   * As indicated in the example file linked, different parameters will be used for different data warehouse types
 * `target` signifies the default value to use for run time, in this case the `dev` connection
 
-When `dbt-init` is ran in a folder to create an initial project, dbt will automatically create the `profiles.yml` file in the `~/.dbt/` directory and populate it with your inputs. Subsequent project creations will not be automatically added to this file, so additional connection profiles will need to be made manually. Using the example link from above, if we created a project that needed the `evil-corp` connection profile and it did not already exist, we would need to add this to `profiles.yml` manually
+When `dbt-init` is ran in a folder to create an initial project, dbt will automatically create the `profiles.yml` file in the `~/.dbt/` directory and populate it with your inputs. Subsequent project creations will also have entries added to this file
 
 ## Setting up dbt Models
 
@@ -95,13 +118,28 @@ All local models for this course will be defined using the `airflow-env` in the 
 
 ### Creating a BigQuery dbt Model
 
-Before creating a local model, we want to ensure our `.env` variables are set so we can utilize them in our project initialization with jinja notation. The following commands will export the environment variables in the current terminal session, with the latter command setting our `GOOGLE_APPLICATION_CREDENTIALS` variable for local GCP authentication
-```bash
-$ set -o allexport && source ~/zoomcamp-de/airflow/.env && set +o allexport
-$ export GOOGLE_APPLICATION_CREDENTIALS=${GCP_KEY_SOURCE}
+Before creating a local model, we want to ensure our `.env` variables are set so we can utilize them in our project initialization with jinja notation. Given that many of our parameters are specific for development on airflow, we will create a `.envlocal` file that contains the following parameters needed for local development
+```
+# PostgreSQL
+PG_DWH_USER=postgres
+PG_DWH_PASSWORD=postgres
+PG_DWH_DBNAME=postgres
+PG_DWH_PORT=5433
+
+# GCP
+GCP_KEY_SOURCE='<path to your gcp key>.json'
+GCP_PROJECT_ID=<your gcp project id>
+GCP_LOCATION=
+
+# DBT
+DBT_DATASET='<your BigQuery dataset name>'
 ```
 
-If you do not wish to load all the `.env` file environment variables for local development, a `local_dbt_dev.env` file can be created and with only what dbt needs to connect and used in the above command
+The following commands will export the environment variables in the current terminal session, with the latter command setting our `GOOGLE_APPLICATION_CREDENTIALS` variable for local GCP authentication
+```bash
+$ set -o allexport && source ~/zoomcamp-de/airflow/.envlocal && set +o allexport
+$ export GOOGLE_APPLICATION_CREDENTIALS=${GCP_KEY_SOURCE}
+```
 
 **Note** these will need to be ran in future sessions prior to any local development being performed. Local development sessions should also not be used for running airflow to prevent conflicts in environment variable definitions
 
@@ -122,6 +160,23 @@ The following responses should be provided
 * `job_execution_timeout_seconds [300]:` any value, or enter for default
 * `Desired location option`: `1` for US, `2` for EU
 
+The `profiles.yml` file created in `~/.dbt/profiles.yml` should end up looking like this
+```yml
+zoomcamp_de_bq_model: # Project name provided to dbt init
+  outputs:
+    dev:
+      dataset: '{{ env_var(''DBT_DATASET'') }}'
+      job_execution_timeout_seconds: 300
+      job_retries: 1
+      location: US
+      method: oauth
+      priority: interactive
+      project: '{{ env_var(''GCP_PROJECT_ID'') }}'
+      threads: 1
+      type: bigquery
+  target: dev
+```
+
 You can then test a successfull setup by entering your project and running the `dbt debug` command
 
 ### Creating a Postgres dbt Model
@@ -131,4 +186,69 @@ You can then test a successfull setup by entering your project and running the `
 $ docker compose up postgres-dwh
 ```
 
-WIP
+We initialize our project for a postgres connection with the following commands, assuming we have already exported all our environment variables as defined above
+```bash
+$ cd ~/zoomcamp-de/airflow/dbt/
+$ dbt init zoomcamp_de_postgres_model
+```
+
+When prompted, the following inputs should be used. Note that the password entry will not show in terminal, but the value provided is captured
+```
+20:34:57  Setting up your profile.
+Which database would you like to use?
+[1] postgres
+[2] bigquery
+
+(Don't see the one you want? https://docs.getdbt.com/docs/available-adapters)
+
+Enter a number: 1
+host (hostname for the instance): localhost
+port [5432]: {{ env_var('PG_DWH_PORT') | int}}
+user (dev username): {{ env_var('PG_DWH_USER') }}
+pass (dev password): {{ env_var('PG_DWH_PASSWORD') }}
+dbname (default database that dbt will build objects in): {{ env_var('PG_DWH_DBNAME') }}
+schema (default schema that dbt will build objects in): ny_taxi
+threads (1 or more) [1]: 1
+```
+* `port` must be converted to an int type for dbt to connect
+
+The resulting `profiles.yml` file should look like this
+```yml
+zoomcamp_de_postgres_model:
+  outputs:
+    dev:
+      dbname: '{{ env_var(''PG_DWH_DBNAME'') }}'
+      host: localhost
+      pass: '{{ env_var(''PG_DWH_PASSWORD'') }}'
+      port: '{{ env_var(''PG_DWH_PORT'') | int }}'
+      schema: ny_taxi
+      threads: 1
+      type: postgres
+      user: '{{ env_var(''PG_DWH_USER'') }}'
+  target: dev
+```
+
+We note however that the above configuration will only work for local development outside of airflow given that we are using `localhost` as the hostname. To run models from within airflow, we will need to add a second target using a different hostname and port for postgres
+```yml
+    airflow_prod:
+      dbname: '{{ env_var(''PG_DWH_DBNAME'') }}'
+      host: postgres-dwh # utilize service name!
+      pass: '{{ env_var(''PG_DWH_PASSWORD'') }}'
+      port: 5432 # utilize this port within container
+      schema: ny_taxi
+      threads: 1
+      type: postgres
+      user: '{{ env_var(''PG_DWH_USER'') }}'
+```
+
+When running models from airflow, we can then specify our desired target using the `--target` argument in `dbt run`
+```bash
+$ dbt run --target airflow_prod
+```
+
+It should also be noted that using our admin postgres credentials for dbt is not best practice in production environments. A dbt user should usually be created in postgres with specific access permissions and roles. The following command will allow you to enter the running postgres container and run commands to set these
+```bash
+$ docker exec -it <postgres container name> psql -U postgres
+```
+
+Documentation on [roles](https://www.postgresql.org/docs/current/user-manag.html) and [privileges](https://www.postgresql.org/docs/current/ddl-priv.html) that can be used for establishing the desired permissions in postgres are linked for here for reference
