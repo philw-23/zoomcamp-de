@@ -67,9 +67,75 @@ For the models section specifically, below is an example from the linked file wi
 * `tags` are values applied to a resource that can be used via resource selection
   * For example, `dbt run --select tag:daily` would run all models in `staging` as they have this tag assigned
 
-### Configuration File - schema.yml
+### Configuration File - properties.yml (formerly schema.yml)
 
-WIP
+The `properties.yml` file (formerly know as `schema.yml`, can be named anything) allows you to define metadata and properties for models, sources, and other resources in your project. Full documentation from dbt with an example file that we will be referencing can be found [here](https://docs.getdbt.com/reference/configs-and-properties)
+
+`sources` define the external sources that dbt models are built on. These are often views or tables from the source database. Below is the example from the dbt documentation detailing some of the arguments that can be provided to a source
+```yml
+sources:
+  - name: raw_jaffle_shop
+    description: A replica of the postgres database used to power the jaffle_shop app.
+    tables:
+      - name: customers
+        columns:
+          - name: id
+            description: Primary key of the table
+            tests:
+              - unique
+              - not_null
+
+      - name: orders
+        columns:
+          - name: id
+            description: Primary key of the table
+            tests:
+              - unique
+              - not_null
+
+          - name: user_id
+            description: Foreign key to customers
+
+          - name: status
+            tests:
+              - accepted_values:
+                  values: ['placed', 'shipped', 'completed', 'return_pending', 'returned']
+```
+* `name` indicates the name of the source
+* `columns` indicates the columns present in the source table
+  * Each column has an `id` and `description` field, and can be provided with test assertions on the data
+  * As shown, this can be `unique` for value uniqueness required, `not null` for values being required, and `accepted_values` for restricting values to a certain set
+  * A full set of potential tests can be found [here](https://docs.getdbt.com/reference/resource-properties/data-tests)
+
+`models` defines the properties and configurations for dbt models in a project. Similar to `sources`, key features such as `name`, `columns`, and `tests` can be defined for model outputs. 
+```yml
+models:
+  - name: stg_jaffle_shop__customers
+    config:
+      tags: ['pii']
+    columns:
+      - name: customer_id
+        tests:
+          - unique
+          - not_null
+
+  - name: stg_jaffle_shop__orders
+    config:
+      materialized: view
+    columns:
+      - name: order_id
+        tests:
+          - unique
+          - not_null
+      - name: status
+        tests:
+          - accepted_values:
+              values: ['placed', 'shipped', 'completed', 'return_pending', 'returned']
+              config:
+                severity: warn
+```
+
+We note the `config` argument provided in the above yml output. This is an available option for both `sources` and `models` definitions in the `properties.yml` file. These arguments allow controlling configuration settings for things such as how a model is materialized, persistence of results, and how frequently to check source data for freshness. A full list of config options for [models](https://docs.getdbt.com/reference/model-configs) and [sources](https://docs.getdbt.com/reference/source-configs) are linked
 
 ### Configuration File - profiles.yml
 
