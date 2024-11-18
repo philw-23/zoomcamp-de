@@ -34,11 +34,20 @@ A useful representation of Kimball's modeling architecture is the kitchen analog
 
 ## Configuration of dbt Core
 
-For this course, we will be utilizing dbt core instead of the dbt cloud offering to practice configuration and allow for local development. The following section describes some of the key files and functions for dbt core. 
+For this course, we will be utilizing dbt core instead of the dbt cloud offering to practice configuration and allow for local development. The following section describes some of the key files and functions for dbt core. Instructions for methods of installing dbt core can be found [here](https://docs.getdbt.com/docs/core/installation-overview). For models utilized in this course and for interfacing with our airflow container, dbt core was installed with python using `pip`
 
 ### dbt Commands
 
-WIP
+There are a number of commands utilized in dbt to perform various actions ranging from creating projects, building and running models, and performing connection and model checks. Below are some of the key functions utilized in dbt that are frequently used (referenced from [this](https://popsql.com/learn-dbt/dbt-commands) link)
+* `dbt init`: initializes a new dbt project
+* `dbt debug`: checks your dbt project setup and datawarehouse connection
+* `dbt deps`: downloads and manages dbt packages needed for your project
+* `dbt clean`: deletes dbt modules and target directories
+* `dbt run`: runs a specified transformation in your model
+* `dbt test`: runs tests in your project to ensure transformations are functioning properly
+* `dbt compile`: compiles dbt project and generates SQL without running the transformations
+
+The full list of availabvle dbt commands as well as links to their documentation can be found [here](https://docs.getdbt.com/reference/dbt-commands). Documentation for each individual command will contain information on additional arguments that can be passed at runtime
 
 ### Configuration File - dbt_project.yml
 

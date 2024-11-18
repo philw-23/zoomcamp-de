@@ -168,3 +168,88 @@ def write_urls_to_bucket(url_list, project_id, bucket_name, bucket_folders, forc
     if os.path.exists('./tmp_chunk.parquet'):
         os.remove('./tmp_chunk.parquet') # Remove file
     print('All URLs sucessfully written')
+
+'''
+    Function to write data URLs to postgres datawarehouse
+        url_list: list of URLs to download and write to postgres
+        pg_engine: engine object used for connecting to postgres
+        taxi_type: taxi type for data write (will be part of table name for data)
+        tgt_schema: target schema to write the data to
+'''
+@task
+def write_data_to_postgres(url_list, taxi_type, tgt_schema):
+    import time
+    import requests
+    import pandas as pd
+    import pyarrow.parquet as pq
+    from io import BytesIO
+    from sqlalchemy import create_engine
+    from sqlalchemy.engine import URL
+
+    # Set chunk size for parquet iterating
+    chunk_size= 8 * 65536 # Number of rows to iterate
+
+    # Create postgres engine
+    pg_url = URL.create(
+        drivername='postgresql',
+        username=os.environ.get('PG_DWH_USER'),
+        password=os.environ.get('PG_DWH_PASSWORD'),
+        host=os.environ.get('PG_DWH_HOST'),
+        port=5432, # Use 5432 since we are within the container
+        database=os.environ.get('PG_DWH_DBNAME')
+    )
+    print(os.environ.get('PG_DWH_HOST'))
+    print(pg_url)
+    pg_engine = create_engine(pg_url)
+
+    # Iterate over all URLs as write to fs
+    for year, url_vals in url_list.items():
+        print(f'Writing data for year {year}')
+
+        # Create table name
+        table_name = f'{taxi_type}_data_{year}' # Combine taxi type and year
+
+        # Iterate over all years
+        for url in url_vals:
+            # Declare start
+            start_time = time.time()
+            print(f'Writing {url} to Postgres')
+
+            # Get the file and write in mem
+            file_pull = requests.get(url)
+            file_pull.raise_for_status() # Ensure success
+            parquet_data = BytesIO(file_pull.content) # In mem read
+            parquet_file = pq.ParquetFile(parquet_data) # Get parquet table
+
+            # Iterate over chunks
+            batches = parquet_file.iter_batches(batch_size=chunk_size)
+            with pg_engine.connect() as pg_conn: # Connect to engine
+                for idx, chunk in enumerate(batches):
+                    print(f'Writing chunk {str(idx)} of URL')
+                    pd_chunk = chunk.to_pandas() # Convert to pandas
+                    if idx == 0: # Write headers only on first batch!
+                        pd_chunk.head(0).to_sql(
+                            name=f'{table_name}',
+                            con=pg_conn,
+                            if_exists='replace', # Replace table if exists
+                            index=False # Don't write index
+                        )
+                    
+                    # Write data - append since table is created
+                    pd_chunk.to_sql(
+                        name=f'{tgt_schema}.table_name',
+                        con=pg_conn,
+                        schema=''
+                        if_exists='append',
+                        index=False
+                    )
+
+            # Print success
+            run_time = round(time.time() - start_time, 2)
+            print(f'Successfully wrote {url} to Postgres in {run_time}s')
+
+    # Fully complete
+    print('All URLs sucessfully written')
+
+    # Dispose of engine
+    pg_engine.dispose()

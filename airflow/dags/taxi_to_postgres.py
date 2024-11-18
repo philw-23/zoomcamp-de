@@ -6,12 +6,11 @@ from airflow.models.param import Param
 from datetime import datetime
 from tasks.taxi_tasks import (
     pull_taxi_data,
-    validate_bucket,
-    write_urls_to_bucket
+    write_data_to_postgres
 )
 
 with DAG(
-    dag_id='taxi_data_to_gcs',
+    dag_id='taxi_data_to_postgres',
     start_date=datetime(2024, 1, 1),
     schedule=None, # '@daily', # Optional daily schedule
     catchup=False,
@@ -35,30 +34,17 @@ with DAG(
     years = get_param('years')
     months = get_param('months')
 
-    # GCP variables
-    GCP_PROJECT = os.environ.get('GCP_PROJECT_ID')
-    GCS_LOCATION = os.environ.get('GCP_LOCATION')
-    BUCKET_NAME = GCP_PROJECT + '-' + dag.params['taxi_type'] + '-taxi-data'
-
-    # Validate bucket and get folders
-    bucket_folders = validate_bucket(
-        project_id=GCP_PROJECT,
-        bucket_name=BUCKET_NAME,
-        gcs_location=GCS_LOCATION
-    )
-
     # Get list of URLs to pull
     url_list = pull_taxi_data(
-        taxi_type,
-        years,
+        taxi_type, 
+        years, 
         months
     )
 
     # Write URLs to bucket
-    urls_written = write_urls_to_bucket(
+    urls_written = write_data_to_postgres(
         url_list=url_list,
-        project_id=GCP_PROJECT,
-        bucket_name=BUCKET_NAME,
-        bucket_folders=bucket_folders,
-        force_overwrite=dag.params['force_overwrite']
+        taxi_type=dag.params['taxi_type'],
+        tgt_schema='ny_taxi'
     )
+
