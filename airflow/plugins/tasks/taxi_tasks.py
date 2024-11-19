@@ -1,7 +1,6 @@
 import os
 from airflow.decorators import task
 
-
 '''
     Function to pull taxi data for a specific taxi type (yellow, green, fhv, fhvhv)
     from the nyc taxi website.
@@ -27,15 +26,13 @@ def pull_taxi_data(taxi_type, years, months):
     # Iterate over all years
     url_dict = {} # Dictionary for storing results by year
     for year in years:
-        # Year string for regex
-        year_string = "|.*_".join(years) # Create a string for years, | is or in regex
         # Build regex
         # (?=.*-{month_string}) looks for a match on month preceeded by dash
         # (?=.*{year_string}) looks for a match on year preceeded by underscore
         # (?=.*{taxi_type}) looks for a match on taxi type
         # .*parquet$ looks for "ends with .parquet"
         full_string = (
-            f"(?=.*-{month_string})(?=.*_{year_string})(?=.*{taxi_type}).*parquet$"
+            f"(?=.*-{month_string})(?=.*_{year})(?=.*{taxi_type}_).*parquet$"
         )
         rgx = re.compile(full_string) # Compile regex
 
@@ -172,7 +169,6 @@ def write_urls_to_bucket(url_list, project_id, bucket_name, bucket_folders, forc
 '''
     Function to write data URLs to postgres datawarehouse
         url_list: list of URLs to download and write to postgres
-        pg_engine: engine object used for connecting to postgres
         taxi_type: taxi type for data write (will be part of table name for data)
         tgt_schema: target schema to write the data to
 '''
@@ -185,11 +181,14 @@ def write_data_to_postgres(url_list, taxi_type, tgt_schema):
     from io import BytesIO
     from sqlalchemy import create_engine
     from sqlalchemy.engine import URL
+    from sqlalchemy.schema import CreateSchema
 
     # Set chunk size for parquet iterating
     chunk_size= 8 * 65536 # Number of rows to iterate
 
     # Create postgres engine
+    # NOTE: broad pg permissions are bad practice in production
+    # Would want to create airflow specific account with desired roles
     pg_url = URL.create(
         drivername='postgresql',
         username=os.environ.get('PG_DWH_USER'),
@@ -198,9 +197,13 @@ def write_data_to_postgres(url_list, taxi_type, tgt_schema):
         port=5432, # Use 5432 since we are within the container
         database=os.environ.get('PG_DWH_DBNAME')
     )
-    print(os.environ.get('PG_DWH_HOST'))
-    print(pg_url)
     pg_engine = create_engine(pg_url)
+
+    # Create target schema if it doesn't exist
+    with pg_engine.connect() as conn:
+        if not conn.dialect.has_schema(conn, tgt_schema): # Check for existence
+            with conn.begin(): # Execute
+                conn.execute(CreateSchema(tgt_schema, if_not_exists=True))
 
     # Iterate over all URLs as write to fs
     for year, url_vals in url_list.items():
@@ -231,6 +234,7 @@ def write_data_to_postgres(url_list, taxi_type, tgt_schema):
                         pd_chunk.head(0).to_sql(
                             name=f'{table_name}',
                             con=pg_conn,
+                            schema=tgt_schema,
                             if_exists='replace', # Replace table if exists
                             index=False # Don't write index
                         )
@@ -239,7 +243,7 @@ def write_data_to_postgres(url_list, taxi_type, tgt_schema):
                     pd_chunk.to_sql(
                         name=f'{tgt_schema}.table_name',
                         con=pg_conn,
-                        schema=''
+                        schema=tgt_schema,
                         if_exists='append',
                         index=False
                     )

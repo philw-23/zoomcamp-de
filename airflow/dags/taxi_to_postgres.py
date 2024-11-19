@@ -19,6 +19,7 @@ with DAG(
                                 '10', '11', '12']), # Months to pull data for
         'years': Param(default=['2022']), # Years to pull data for
         'taxi_type': Param(default='green'), # Taxi type to pull data for
+        'tgt_schema': Param(default='ny_taxi'),
         'force_overwrite': Param(default=False) # Overwrite all data - ignore checks on existence
     },
     tags=['data-zoomcamp']
@@ -33,6 +34,7 @@ with DAG(
     taxi_type = get_param('taxi_type')
     years = get_param('years')
     months = get_param('months')
+    tgt_schema = get_param('tgt_schema')
 
     # Get list of URLs to pull
     url_list = pull_taxi_data(
@@ -44,7 +46,7 @@ with DAG(
     # Write URLs to bucket
     urls_written = write_data_to_postgres(
         url_list=url_list,
-        taxi_type=dag.params['taxi_type'],
-        tgt_schema='ny_taxi'
+        taxi_type=taxi_type,
+        tgt_schema=tgt_schema
     )
 
