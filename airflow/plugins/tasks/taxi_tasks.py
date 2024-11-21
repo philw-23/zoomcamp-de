@@ -61,7 +61,7 @@ def pull_taxi_data(taxi_type, years, months):
         storage_class: storage class to use for bucket
 '''
 @task
-def validate_bucket(project_id, bucket_name, gcs_location, storage_class='STANDARD'):
+def validate_bucket(project_id, bucket_base, gcs_location, taxi_type, storage_class='STANDARD'):
     # Import required packages
     from google.cloud import storage
 
@@ -69,6 +69,7 @@ def validate_bucket(project_id, bucket_name, gcs_location, storage_class='STANDA
     client = storage.Client(project_id)
 
     # Create bucket object
+    bucket_name = bucket_base + '-' + taxi_type
     bucket = client.bucket(bucket_name)
     bucket.location = gcs_location
     bucket.storage_class = storage_class
@@ -101,70 +102,93 @@ def validate_bucket(project_id, bucket_name, gcs_location, storage_class='STANDA
         force_overwrite: overwrite all data, ignore checks on existence
 '''
 @task
-def write_urls_to_bucket(url_list, project_id, bucket_name, bucket_folders, force_overwrite):
+def write_urls_to_bucket(url_list, project_id, bucket_base, bucket_folders, force_overwrite,
+                         taxi_type):
     # Import required packages
     import time
     import requests
     import pandas as pd
     import pyarrow.parquet as pq
     from google.cloud import storage
-    from io import BytesIO
+    from concurrent.futures import ThreadPoolExecutor
 
     # Initialize client
-    client = storage.Client()
+    client = storage.Client(project_id)
 
     # Initialize bucket
+    bucket_name = bucket_base + '-' + taxi_type
     bucket = client.bucket(bucket_name)
-
-    # Set chunk size for iterating
-    chunk_size= 8 * 65536 # Number of rows to iterate
     
-    # Set start time
+    # Creates generator for data chunks
+    def yield_url_files(url_list, chunk_size):
+        for year, url_vals in url_list.items():
+            # Iterate over all urls
+            for url in url_vals:
+                # Create base table name
+                table_name = url.split('/')[-1] # Extract table name from end of url
+                table_name = table_name.replace('.parquet', '') # Replace as we are writing in chunks
+                folder_path = year + '/' + table_name # For checking existence
 
-    # Iterate over all URLs as write to fs
-    for year, url_vals in url_list.items():
-        print(f'Writing data for year {year}')
+                # Yield results
+                yield table_name, folder_path, url, year, chunk_size
 
-        # Iterate over all years
-        for url in url_vals:
-            # Declare start
-            start_time = time.time()
-            print(f'Writing {url} to GCS bucket')
+    # Writes generator batch to postgres
+    def write_url_to_gcs(inputs):
+        # Get inputs
+        folder_name, folder_path, url, year, chunk_size = inputs
 
-            # Create base table name
-            table_name = url.split('/')[-1] # Extract table name from end of url
-            table_name = table_name.replace('.parquet', '') # Replace as we are writing in chunks
-            folder_path = year + '/' + table_name # For checking existence
+        # Check if we already have table in GCS
+        # Check if we already have folder and are not force overwriting
+        if folder_path in bucket_folders and not force_overwrite:
+            print(f'For {year}, {folder_name}: DATA BUCKET {folder_path} for URL already exists - skipping')
+            return
 
-            # Check if we already have table in GCS
-            # Check if we already have folder and are not force overwriting
-            if folder_path in bucket_folders and not force_overwrite:
-                print(f'Data bucket {folder_path} for URL already exists - skipping')
-                continue
+        # Set start time
+        start = time.time()
 
-            # Get the file and write in mem
-            file_pull = requests.get(url)
-            file_pull.raise_for_status() # Ensure success
-            parquet_data = BytesIO(file_pull.content) # In mem read
-            parquet_file = pq.ParquetFile(parquet_data) # Get parquet table
+        # Temp filename to use
+        tmp_fpath = f'./{folder_name}.parquet'
 
-            # Iterate over chunks
-            batches = parquet_file.iter_batches(batch_size=chunk_size)
-            for idx, chunk in enumerate(batches):
-                print(f'Writing chunk {str(idx)} of URL')
-                chunk.to_pandas().to_parquet('./tmp_chunk.parquet') # Write to local file
-                blob_name = f'{year}/{table_name}/chunk_{str(idx)}.parquet' # chunk name for write
-                blob = bucket.blob(blob_name) # Define blob for upload
-                blob.upload_from_filename('./tmp_chunk.parquet') # Upload blob from filename
+        # print(f'For year {year}: writing chunk {idx} of {url} to {table_name}')
+        print(f'For {year}, {folder_name}: DOWNLOADING file from {url}')
+        file_pull = requests.get(url, stream=True)
+        file_pull.raise_for_status() # Ensure success
+        with open(tmp_fpath, 'wb') as out: # Write out in chunks
+            for chunk in file_pull.iter_content(chunk_size=8192):
+                out.write(chunk)
+        
+        # Create parquet file
+        parquet_file = pq.ParquetFile(tmp_fpath) # Get parquet table
 
-            # Print success
-            run_time = round(time.time() - start_time, 2)
-            print(f'Successfully wrote {url} to GCS bucket in {run_time}s')
+        # Iterate over chunks
+        batches = parquet_file.iter_batches(batch_size=chunk_size)
+        for idx, batch in enumerate(batches):
+            print(f'For {year}, {folder_name}: WRITING chunk {idx} of {url} to GCS')
+            pd_chunk = batch.to_pandas()
+            chunk_fname = f'./tmp_{folder_name}_chunk_{idx}.parquet' # File name for local chunk
+            pd_chunk.to_parquet(chunk_fname) # Write to local file
+            blob_name = f'{year}/{folder_name}/chunk_{idx}.parquet' # chunk name for GCS write
+            blob = bucket.blob(blob_name) # Define blob for upload
+            blob.upload_from_filename(chunk_fname) # Upload blob from filename
+            os.remove(chunk_fname) # Remove local chunk
+        
 
-    # Fully complete
-    if os.path.exists('./tmp_chunk.parquet'):
-        os.remove('./tmp_chunk.parquet') # Remove file
-    print('All URLs sucessfully written')
+        # Clear temp file
+        write_duration = round(time.time() - start, 3)
+        print(f'For {year}, {folder_name}: COMPLETED write of {url} to GCS in {write_duration}s')
+        os.remove(tmp_fpath)
+        print(f'For {year}, {folder_name}: DELETED local file {tmp_fpath}')
+
+    # Set chunk size for parquet iterating
+    chunk_size = 2 * 65536 # Number of rows to iterate
+
+    # Multiprocess - no workers specified
+    with ThreadPoolExecutor() as executor:
+        # Takes in function, and iterables
+        executor.map(
+            write_url_to_gcs, 
+            yield_url_files(url_list, chunk_size=chunk_size),
+        )
 
 '''
     Function to write data URLs to postgres datawarehouse
@@ -178,14 +202,10 @@ def write_data_to_postgres(url_list, taxi_type, tgt_schema):
     import requests
     import pandas as pd
     import pyarrow.parquet as pq
-    from io import BytesIO
     from concurrent.futures import ThreadPoolExecutor
     from sqlalchemy import create_engine, inspect
     from sqlalchemy.engine import URL
     from sqlalchemy.schema import CreateSchema
-
-    # Set chunk size for parquet iterating
-    chunk_size= 4 * 65536 # Number of rows to iterate
 
     # Create postgres engine
     # NOTE: broad pg permissions are bad practice in production
@@ -209,8 +229,7 @@ def write_data_to_postgres(url_list, taxi_type, tgt_schema):
                     conn.execute(CreateSchema(tgt_schema, if_not_exists=True))
 
     # Creates generator for data chunks
-    # TODO: factor this to it's own function
-    def generate_data_chunks(url_lists, chunk_size):
+    def yield_url_files(url_list, chunk_size):
         for year, url_vals in url_list.items():
             # print(f'Writing data for year {year}')
             # Create table name
@@ -224,94 +243,60 @@ def write_data_to_postgres(url_list, taxi_type, tgt_schema):
 
             # Iterate over all years
             for url in url_vals:
-                # Declare start
-                start_time = time.time()
-                # print(f'Writing {url} to Postgres')
-
-                # Get the file and write in mem
-                file_pull = requests.get(url)
-                file_pull.raise_for_status() # Ensure success
-                parquet_data = BytesIO(file_pull.content) # In mem read
-                parquet_file = pq.ParquetFile(parquet_data) # Get parquet table
-
-                # Iterate over chunks
-                batches = parquet_file.iter_batches(batch_size=chunk_size)
-                for idx, batch in enumerate(batches):
-                    yield idx, batch, url, year, table_name
+                yield table_name, url, year, chunk_size
 
     # Writes generator batch to postgres
-    def write_batch_to_postgres(inputs):
+    def write_url_to_postgres(inputs):
         # Get inputs
-        idx, batch, url, year, table_name = inputs
+        table_name, url, year, chunk_size = inputs
 
-        print(f'For year {year}: writing chunk {idx} of {url} to {table_name}')
-        pd_chunk = batch.to_pandas() # Convert to pandas
+        # Set start time
+        start = time.time()
+
+        # Temp filename to use
+        fname = url.split('/')[-1]
+        tmp_fpath = f'./{fname}'
+
+        # print(f'For year {year}: writing chunk {idx} of {url} to {table_name}')
+        print(f'For {year}, {table_name}: DOWNLOADING file from {url}')
+        file_pull = requests.get(url, stream=True)
+        file_pull.raise_for_status() # Ensure success
+        with open(tmp_fpath, 'wb') as out: # Write out in chunks
+            for chunk in file_pull.iter_content(chunk_size=8192):
+                out.write(chunk)
         
-        # Write data - append if table exists
-        with pg_engine.connect() as pg_conn:
-            pd_chunk.to_sql(
-                name=table_name,
-                con=pg_conn,
-                schema=tgt_schema,
-                if_exists='append',
-                index=False
-            )
+        # Create parquet file
+        parquet_file = pq.ParquetFile(tmp_fpath) # Get parquet table
+
+        # Iterate over chunks
+        batches = parquet_file.iter_batches(batch_size=chunk_size)
+        for idx, batch in enumerate(batches):
+            print(f'For {year}, {table_name}: WRITING chunk {idx} of {url} to postgres')
+            pd_chunk = batch.to_pandas()
+        
+            # Write data - append if table exists
+            with pg_engine.connect() as pg_conn:
+                pd_chunk.to_sql(
+                    name=table_name,
+                    con=pg_conn,
+                    schema=tgt_schema,
+                    if_exists='append',
+                    index=False
+                )
+
+        # Clear temp file
+        write_duration = round(time.time() - start, 3)
+        print(f'For {year}, {table_name}: COMPLETED write of {url} to postgres in {write_duration}s')
+        os.remove(tmp_fpath)
+        print(f'For {year}, {table_name}: DELETED local file {tmp_fpath}')
+
+    # Set chunk size for parquet iterating
+    chunk_size = 2 * 65536 # Number of rows to iterate
 
     # Multiprocess - no workers specified
     with ThreadPoolExecutor() as executor:
         # Takes in function, and iterables
         executor.map(
-            write_batch_to_postgres, 
-            generate_data_chunks(url_list, chunk_size=chunk_size)
+            write_url_to_postgres, 
+            yield_url_files(url_list, chunk_size=chunk_size),
         )
-
-    # # Iterate over all URLs as write to fs
-    # for year, url_vals in url_list.items():
-    #     print(f'Writing data for year {year}')
-
-    #     # Create table name
-    #     table_name = f'{taxi_type}_data_{year}' # Combine taxi type and year
-
-    #     # Check for table existence - truncate if so
-    #     if table_name in pg_inspect.get_table_names(schema=tgt_schema):
-    #         print(f'Table {tgt_schema}.{table_name} already exists - truncating data')
-    #         with pg_engine.connect() as conn:
-    #             conn.execute(f'TRUNCATE TABLE {tgt_schema}.{table_name}')
-
-    #     # Iterate over all years
-    #     for url in url_vals:
-    #         # Declare start
-    #         start_time = time.time()
-    #         print(f'Writing {url} to Postgres')
-
-    #         # Get the file and write in mem
-    #         file_pull = requests.get(url)
-    #         file_pull.raise_for_status() # Ensure success
-    #         parquet_data = BytesIO(file_pull.content) # In mem read
-    #         parquet_file = pq.ParquetFile(parquet_data) # Get parquet table
-
-    #         # Iterate over chunks
-    #         batches = parquet_file.iter_batches(batch_size=chunk_size)
-    #         with pg_engine.connect() as pg_conn: # Connect to engine
-    #             for idx, chunk in enumerate(batches):
-    #                 print(f'Writing chunk {str(idx)} of URL')
-    #                 pd_chunk = chunk.to_pandas() # Convert to pandas
-                    
-    #                 # Write data - append if table exists
-    #                 pd_chunk.to_sql(
-    #                     name=table_name,
-    #                     con=pg_conn,
-    #                     schema=tgt_schema,
-    #                     if_exists='append',
-    #                     index=False
-    #                 )
-
-    #         # Print success
-    #         run_time = round(time.time() - start_time, 2)
-    #         print(f'Successfully wrote {url} to Postgres in {run_time}s')
-
-    # Fully complete
-    print('All URLs sucessfully written')
-
-    # Dispose of engine
-    pg_engine.dispose()

@@ -19,8 +19,7 @@ with DAG(
                                 '10', '11', '12']), # Months to pull data for
         'years': Param(default=['2022']), # Years to pull data for
         'taxi_type': Param(default='green'), # Taxi type to pull data for
-        'tgt_schema': Param(default='ny_taxi'),
-        'force_overwrite': Param(default=False) # Overwrite all data - ignore checks on existence
+        'tgt_schema': Param(default='ny_taxi')
     },
     tags=['data-zoomcamp']
 ) as dag:
@@ -50,3 +49,4 @@ with DAG(
         tgt_schema=tgt_schema
     )
 
+    [taxi_type, years, months, tgt_schema] >> url_list >> urls_written

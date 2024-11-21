@@ -34,17 +34,19 @@ with DAG(
     taxi_type = get_param('taxi_type')
     years = get_param('years')
     months = get_param('months')
+    force_overwrite = get_param('force_overwrite')
 
     # GCP variables
     GCP_PROJECT = os.environ.get('GCP_PROJECT_ID')
     GCS_LOCATION = os.environ.get('GCP_LOCATION')
-    BUCKET_NAME = GCP_PROJECT + '-' + dag.params['taxi_type'] + '-taxi-data'
+    BUCKET_BASE = GCP_PROJECT + '-taxi-data'
 
     # Validate bucket and get folders
     bucket_folders = validate_bucket(
         project_id=GCP_PROJECT,
-        bucket_name=BUCKET_NAME,
-        gcs_location=GCS_LOCATION
+        bucket_base=BUCKET_BASE,
+        gcs_location=GCS_LOCATION,
+        taxi_type=taxi_type
     )
 
     # Get list of URLs to pull
@@ -58,7 +60,11 @@ with DAG(
     urls_written = write_urls_to_bucket(
         url_list=url_list,
         project_id=GCP_PROJECT,
-        bucket_name=BUCKET_NAME,
+        bucket_base=BUCKET_BASE,
         bucket_folders=bucket_folders,
-        force_overwrite=dag.params['force_overwrite']
+        force_overwrite=force_overwrite,
+        taxi_type=taxi_type
     )
+
+    [taxi_type, years, months, force_overwrite] >> bucket_folders >> \
+        url_list >> urls_written
