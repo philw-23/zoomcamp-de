@@ -68,7 +68,7 @@ x-airflow-common:
     AIRFLOW__DATABASE__SQL_ALCHEMY_CONN: postgresql+psycopg2://airflow:airflow@postgres/airflow
     AIRFLOW__CELERY__RESULT_BACKEND: db+postgresql://airflow:airflow@postgres/airflow
     AIRFLOW__CELERY__BROKER_URL: redis://:@redis:6379/0
-    AIRFLOW__CORE__FERNET_KEY: ''
+    AIRFLOW__CORE__FERNET_KEY: ${AIRFLOW__CORE__FERNET_KEY}
     AIRFLOW__CORE__DAGS_ARE_PAUSED_AT_CREATION: 'true'
     # AIRFLOW__CORE__LOAD_EXAMPLES: 'true'
     AIRFLOW__API__AUTH_BACKENDS: 'airflow.api.auth.backend.basic_auth,airflow.api.auth.backend.session'
@@ -92,11 +92,28 @@ x-airflow-common:
     # CHANGE (ADD)
     #################################
     # Add our GCP credential mappings
-    GOOGLE_APPLICATION_CREDENTIALS: ${GCP_KEY_DEST}
-    AIRFLOW_CONN_GOOGLE_CLOUD_DEFAULT: 
-      "google-cloud-platform://?extra__google_cloud_platform__\
-      key_path=${GCP_KEY_DEST}"
-
+    AIRFLOW_CONN_GOOGLE_CLOUD_DEFAULT: >-
+      {
+        "conn_type": "google_cloud_platform",
+        "extra": {
+          "key_path": "${GCP_KEY_DEST}",
+          "project": "${GCP_PROJECT_ID}"
+        }
+      }
+    # Add our postgres connection mapping
+    # NOTE: schema is dbname in this connection type
+    AIRFLOW_CONN_POSTGRES_DEFAULT: >-
+      {
+          "conn_type": "postgres",
+          "host": "${PG_DWH_HOST}",
+          "schema": "${PG_DWH_DBNAME}",
+          "login": "${PG_DWH_USER}",
+          "password": "${PG_DWH_PASSWORD}",
+          "port": 5432,
+          "extra": {
+              "sslmode": "require"
+          }
+      }
 
   #################################
   # CHANGE (MODIFY)

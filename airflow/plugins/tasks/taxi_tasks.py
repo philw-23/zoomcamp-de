@@ -64,9 +64,14 @@ def pull_taxi_data(taxi_type, years, months):
 def validate_bucket(project_id, bucket_base, gcs_location, taxi_type, storage_class='STANDARD'):
     # Import required packages
     from google.cloud import storage
+    from airflow.providers.google.cloud.hooks.gcs import GCSHook
+
+
+    # Create GCS hook
+    gcs_hook = GCSHook(gcp_conn_id='google_cloud_default')
 
     # Initiate Client
-    client = storage.Client(project_id)
+    client: storage.Client = gcs_hook.get_conn()
 
     # Create bucket object
     bucket_name = bucket_base + '-' + taxi_type
@@ -111,9 +116,14 @@ def write_urls_to_bucket(url_list, project_id, bucket_base, bucket_folders, forc
     import pyarrow.parquet as pq
     from google.cloud import storage
     from concurrent.futures import ThreadPoolExecutor
+    from airflow.providers.google.cloud.hooks.gcs import GCSHook
 
-    # Initialize client
-    client = storage.Client(project_id)
+
+    # Create GCS hook
+    gcs_hook = GCSHook(gcp_conn_id='google_cloud_default')
+
+    # Initiate Client
+    client: storage.Client = gcs_hook.get_conn()
 
     # Initialize bucket
     bucket_name = bucket_base + '-' + taxi_type
@@ -203,23 +213,17 @@ def write_data_to_postgres(url_list, taxi_type, tgt_schema):
     import pandas as pd
     import pyarrow.parquet as pq
     from concurrent.futures import ThreadPoolExecutor
+    from airflow.providers.postgres.hooks.postgres import PostgresHook
     from sqlalchemy import create_engine, inspect
     from sqlalchemy.engine import URL
     from sqlalchemy.schema import CreateSchema
 
-    # Create postgres engine
-    # NOTE: broad pg permissions are bad practice in production
-    # Would want to create airflow specific account with desired roles
-    pg_url = URL.create(
-        drivername='postgresql',
-        username=os.environ.get('PG_DWH_USER'),
-        password=os.environ.get('PG_DWH_PASSWORD'),
-        host=os.environ.get('PG_DWH_HOST'),
-        port=5432, # Use 5432 since we are within the container
-        database=os.environ.get('PG_DWH_DBNAME')
-    )
-    pg_engine = create_engine(pg_url)
-    pg_inspect = inspect(pg_engine) # Create inspector for checks
+    # Create postgres hook
+    pg_hook = PostgresHook(postgres_conn_id='postgres_default')
+
+    # Create engine
+    pg_engine = pg_hook.get_sqlalchemy_engine()
+    pg_inspect = inspect(pg_engine)
 
     # Create target schema if it doesn't exist
     if tgt_schema not in pg_inspect.get_schema_names(): # Check for schema existence
