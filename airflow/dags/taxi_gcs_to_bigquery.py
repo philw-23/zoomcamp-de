@@ -1,17 +1,16 @@
 import os
 import sys
 from airflow import DAG
+from airflow.operators.dagrun_operator import TriggerDagRunOperator
 from airflow.decorators import task
 from airflow.models.param import Param
 from datetime import datetime
 from tasks.taxi_tasks import (
-    pull_taxi_data,
-    validate_bucket,
-    write_urls_to_bucket
+    write_gcs_to_bigquery
 )
 
 with DAG(
-    dag_id='taxi_data_to_gcs',
+    dag_id='taxi_gcs_to_bigquery',
     start_date=datetime(2024, 1, 1),
     schedule=None, # '@daily', # Optional daily schedule
     catchup=False,
@@ -21,7 +20,8 @@ with DAG(
         'years': Param(default=['2022']), # Years to pull data for
         'taxi_type': Param(default='green'), # Taxi type to pull data for
         'tgt_bucket_name': Param(default='green-taxi-data'), # Suffix to add to project for bucket name
-        'force_overwrite': Param(default=False) # Overwrite all data - ignore checks on existence
+        'force_overwrite': Param(default=False), # Overwrite all data - ignore checks on existence
+        'tgt_bigquery_dataset': Param(default='ny_taxi_raw')
     },
     tags=['data-zoomcamp']
 ) as dag:
@@ -40,29 +40,31 @@ with DAG(
     months = get_param('months')
     tgt_bucket_name = get_param('tgt_bucket_name')
     force_overwrite = get_param('force_overwrite')
+    tgt_bigquery_dataset = get_param('tgt_bigquery_dataset')
 
-    # Validate bucket and get folders
-    bucket_folders = validate_bucket(
-        bucket_suffix=tgt_bucket_name,
-        taxi_type=taxi_type
+    # Trigger the GCS write
+    trigger_gcs_write = TriggerDagRunOperator(
+        task_id="trigger_gcs_dag",
+        trigger_dag_id="taxi_data_to_gcs",
+        wait_for_completion=True,
+        conf={ # Pass params to GCS DAG
+            'taxi_type': taxi_type,
+            'years': years,
+            'months': months,
+            'tgt_bucket_name': tgt_bucket_name,
+            'force_overwrite': force_overwrite
+        }
     )
 
-    # Get list of URLs to pull
-    url_list = pull_taxi_data(
-        taxi_type,
-        years,
-        months
-    )
-
-    # Write URLs to bucket
-    urls_written = write_urls_to_bucket(
-        url_list=url_list,
+    # Write data to BigQuery
+    bigquery_written = write_gcs_to_bigquery(
+        tgt_dataset=tgt_bigquery_dataset,
+        years=years,
         bucket_suffix=tgt_bucket_name,
-        bucket_folders=bucket_folders,
-        force_overwrite=force_overwrite,
-        taxi_type=taxi_type
+        taxi_type=taxi_type,
+        input_data_type='PARQUET'
     )
 
     # Define sequencing
-    [taxi_type, years, months, force_overwrite] >> bucket_folders >> \
-        url_list >> urls_written
+    [taxi_type, years, months, force_overwrite, tgt_bigquery_dataset] >> \
+        trigger_gcs_write >> bigquery_written

@@ -19,7 +19,7 @@ with DAG(
                                 '10', '11', '12']), # Months to pull data for
         'years': Param(default=['2022']), # Years to pull data for
         'taxi_type': Param(default='green'), # Taxi type to pull data for
-        'tgt_schema': Param(default='ny_taxi')
+        'tgt_schema': Param(default='ny_taxi_raw')
     },
     tags=['data-zoomcamp']
 ) as dag:

@@ -55,13 +55,12 @@ def pull_taxi_data(taxi_type, years, months):
 '''
     Function to validate the existence of GCS bucket and create if not. Assumes
     that required gcp credentials are exported
-        project_id: gcp project id where bucket will live
         bucket_name: name of bucket to be created
         gcs_location: location for bucket to be created in
         storage_class: storage class to use for bucket
 '''
 @task
-def validate_bucket(project_id, bucket_base, gcs_location, taxi_type, storage_class='STANDARD'):
+def validate_bucket(bucket_suffix, taxi_type, storage_class='STANDARD'):
     # Import required packages
     from google.cloud import storage
     from airflow.providers.google.cloud.hooks.gcs import GCSHook
@@ -74,9 +73,8 @@ def validate_bucket(project_id, bucket_base, gcs_location, taxi_type, storage_cl
     client: storage.Client = gcs_hook.get_conn()
 
     # Create bucket object
-    bucket_name = bucket_base + '-' + taxi_type
+    bucket_name = f'{client.project}-{bucket_suffix}'
     bucket = client.bucket(bucket_name)
-    bucket.location = gcs_location
     bucket.storage_class = storage_class
 
     if bucket.exists(): # If it exists - check for directory files that exist
@@ -101,13 +99,12 @@ def validate_bucket(project_id, bucket_base, gcs_location, taxi_type, storage_cl
 '''
     Function to write data URLs to GCS bucket
         url_list: list of URLs to write
-        project_id: project where bucket lives
         bucket_name: bucket to write the data to
         bucket_folders: list of existing bucket folders to check before writing
         force_overwrite: overwrite all data, ignore checks on existence
 '''
 @task
-def write_urls_to_bucket(url_list, project_id, bucket_base, bucket_folders, force_overwrite,
+def write_urls_to_bucket(url_list, bucket_suffix, bucket_folders, force_overwrite,
                          taxi_type):
     # Import required packages
     import time
@@ -118,7 +115,6 @@ def write_urls_to_bucket(url_list, project_id, bucket_base, bucket_folders, forc
     from concurrent.futures import ThreadPoolExecutor
     from airflow.providers.google.cloud.hooks.gcs import GCSHook
 
-
     # Create GCS hook
     gcs_hook = GCSHook(gcp_conn_id='google_cloud_default')
 
@@ -126,7 +122,7 @@ def write_urls_to_bucket(url_list, project_id, bucket_base, bucket_folders, forc
     client: storage.Client = gcs_hook.get_conn()
 
     # Initialize bucket
-    bucket_name = bucket_base + '-' + taxi_type
+    bucket_name = f'{client.project}-{bucket_suffix}'
     bucket = client.bucket(bucket_name)
     
     # Creates generator for data chunks
@@ -214,9 +210,9 @@ def write_data_to_postgres(url_list, taxi_type, tgt_schema):
     import pyarrow.parquet as pq
     from concurrent.futures import ThreadPoolExecutor
     from airflow.providers.postgres.hooks.postgres import PostgresHook
-    from sqlalchemy import create_engine, inspect
-    from sqlalchemy.engine import URL
+    from sqlalchemy import inspect
     from sqlalchemy.schema import CreateSchema
+    from io import StringIO
 
     # Create postgres hook
     pg_hook = PostgresHook(postgres_conn_id='postgres_default')
@@ -235,7 +231,6 @@ def write_data_to_postgres(url_list, taxi_type, tgt_schema):
     # Creates generator for data chunks
     def yield_url_files(url_list, chunk_size):
         for year, url_vals in url_list.items():
-            # print(f'Writing data for year {year}')
             # Create table name
             table_name = f'{taxi_type}_data_{year}' # Combine taxi type and year
 
@@ -277,7 +272,7 @@ def write_data_to_postgres(url_list, taxi_type, tgt_schema):
         for idx, batch in enumerate(batches):
             print(f'For {year}, {table_name}: WRITING chunk {idx} of {url} to postgres')
             pd_chunk = batch.to_pandas()
-        
+
             # Write data - append if table exists
             with pg_engine.connect() as pg_conn:
                 pd_chunk.to_sql(
@@ -285,7 +280,8 @@ def write_data_to_postgres(url_list, taxi_type, tgt_schema):
                     con=pg_conn,
                     schema=tgt_schema,
                     if_exists='append',
-                    index=False
+                    index=False,
+                    method='multi'
                 )
 
         # Clear temp file
@@ -295,7 +291,7 @@ def write_data_to_postgres(url_list, taxi_type, tgt_schema):
         print(f'For {year}, {table_name}: DELETED local file {tmp_fpath}')
 
     # Set chunk size for parquet iterating
-    chunk_size = 2 * 65536 # Number of rows to iterate
+    chunk_size = 1 * 65536 # Number of rows to iterate
 
     # Multiprocess - no workers specified
     with ThreadPoolExecutor() as executor:
@@ -304,3 +300,53 @@ def write_data_to_postgres(url_list, taxi_type, tgt_schema):
             write_url_to_postgres, 
             yield_url_files(url_list, chunk_size=chunk_size),
         )
+
+'''
+    Function to write data from gcs bucket to external table in BigQuery. Can be extended to also
+    create materialized data in BigQuery
+        tgt_dataset: dataset to create in bigquery
+        years: years which data is being written for
+        bucket_name: bucket to pull data from (uses return from write_urls_to_bucket)
+        taxi_type: taxi type to use for BigQuery table name
+        input_data_type: filetype to read from GCS bucket
+'''
+@task
+def write_gcs_to_bigquery(tgt_dataset, years, bucket_suffix, taxi_type, input_data_type):
+    # Import packages
+    from google.cloud import bigquery
+    from google.cloud.exceptions import NotFound
+    from airflow.providers.google.cloud.hooks.bigquery import BigQueryHook
+
+    # Create BigQuery hook
+    bigquery_hook = BigQueryHook(gcp_conn_id='google_cloud_default')
+
+    # Get bigquery client
+    bq_client: bigquery.Client = bigquery_hook.get_client()
+
+    # Create bigquery dataset
+    dataset_path = f'{bq_client.project}.{tgt_dataset}' # Path to use for dataset
+    try: # Try obtaining the dataset
+        bq_client.get_dataset(dataset_path)
+        print('Dataset {tgt_dataset} already exists')
+    except NotFound: # Not found error - create dataset
+        dataset = bigquery.Dataset(dataset_path) # Initialize
+        dataset = bq_client.create_dataset(dataset) # Creation transaction
+        print(f'CREATED BigQuery Dataset - {tgt_dataset}')
+
+    # Bucket name for matching gcs format
+    bucket_name = f'{bq_client.project}-{bucket_suffix}'
+
+    # Create an external table for each year
+    for year in years:
+        # Create external source format
+        external_source_format = input_data_type
+        uri_list = [f'gs://{bucket_name}/{year}/*'] # List of URI formats to read
+        external_config = bigquery.ExternalConfig(external_source_format)
+        external_config.source_uris = uri_list
+
+        # Create external table
+        external_table_name = f'{taxi_type}_{year}_external'
+        table = bigquery.Table(f'{dataset_path}.{external_table_name}') # Initialize table
+        table.external_data_configuration = external_config # Assign external config
+        table = bq_client.create_table(table)
+        print(f'CREATED external BigQuery table {external_table_name}')

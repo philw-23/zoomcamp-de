@@ -97,7 +97,8 @@ x-airflow-common:
         "conn_type": "google_cloud_platform",
         "extra": {
           "key_path": "${GCP_KEY_DEST}",
-          "project": "${GCP_PROJECT_ID}"
+          "project": "${GCP_PROJECT_ID}",
+          "location": "${GCP_LOCATION}"
         }
       }
     # Add our postgres connection mapping
