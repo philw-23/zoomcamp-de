@@ -263,9 +263,11 @@ def write_data_to_postgres(url_list, taxi_type, tgt_schema):
 
                 # Get schema creation command and execute
                 schema_create = pd.io.sql.get_schema(
-                    schema_df, name=f'{tgt_schema}.{table_name}', 
-                    con=pg_engine) # Create command
-                print(schema_create)
+                    schema_df, 
+                    name=table_name, 
+                    con=pg_engine,
+                    schema=tgt_schema
+                ) # Create command
                 with pg_engine.connect() as conn: # Execute connection
                     conn.execute(schema_create)
 
@@ -302,22 +304,21 @@ def write_data_to_postgres(url_list, taxi_type, tgt_schema):
             print(f'For {year}, {table_name}: WRITING chunk {idx} of {url} to postgres')
             pd_chunk = batch.to_pandas()
 
-            # Write data - append if table exists
-            # with pg_engine.connect() as pg_conn:
-            #     pd_chunk.to_sql(
-            #         name=table_name,
-            #         con=pg_conn,
-            #         schema=tgt_schema,
-            #         if_exists='append',
-            #         index=False,
-            #         method='multi'
-            #     )
+            # Create string buffer
             buffer = StringIO() # Initialize buffer
             pd_chunk.to_csv(buffer, index=False, header=False) # Write to buffer
             buffer.seek(0) # Go to start
-            with pg_engine.connect() as conn: # Write data
-                with conn.cursor() as pg_curs:
-                    pg_curs.copy_expert(f"COPY {table_name} FROM STDIN WITH CSV", buffer)
+
+            # Create connection and write data
+            with pg_engine.connect() as conn:
+                raw_conn = conn.connection # Get raw connection
+                raw_cursor = raw_conn.cursor() # Get cursor
+                raw_cursor.copy_expert(f"COPY {tgt_schema}.{table_name} FROM STDIN WITH CSV", buffer) # Execute copy
+                raw_conn.commit() # Commit transaction
+
+                # Cleanup
+                raw_cursor.close() # Close cursor
+                raw_conn.close() # Close connection
 
         # Clear temp file
         write_duration = round(time.time() - start, 3)
