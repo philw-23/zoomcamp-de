@@ -237,7 +237,7 @@ The following responses should be provided
 
 The `profiles.yml` file created in `~/.dbt/profiles.yml` should end up looking like this
 ```yml
-zoomcamp_de_bq_model: # Project name provided to dbt init
+ny_taxi_bigquery: # Project name provided to dbt init
   outputs:
     dev:
       dataset: '{{ env_var(''DBT_DATASET'') }}'
@@ -289,7 +289,7 @@ threads (1 or more) [1]: 1
 
 The resulting `profiles.yml` file should look like this
 ```yml
-zoomcamp_de_postgres_model:
+ny_taxi_postgres: # Project name entered
   outputs:
     dev:
       dbname: '{{ env_var(''PG_DWH_DBNAME'') }}'
@@ -321,9 +321,92 @@ When running models from airflow, we can then specify our desired target using t
 $ dbt run --target airflow_prod
 ```
 
-It should also be noted that using our admin postgres credentials for dbt is not best practice in production environments. A dbt user should usually be created in postgres with specific access permissions and roles. The following command will allow you to enter the running postgres container and run commands to set these
+#### Admin vs. dbt User Permissions
+
+It should also be noted that using our admin postgres credentials for dbt is not best practice in production environments. A dbt user should be created in postgres with specific access permissions and roles. The following command will allow you to enter the running postgres container and run commands to create a user and set permissions
 ```bash
 $ docker exec -it <postgres container name> psql -U postgres
 ```
 
-Documentation on [roles](https://www.postgresql.org/docs/current/user-manag.html) and [privileges](https://www.postgresql.org/docs/current/ddl-priv.html) that can be used for establishing the desired permissions in postgres are linked for here for reference
+To create a user login in postgres, the following commands can be used
+```sql
+CREATE USER <your dbt user> WITH PASSWORD '<your dbt user password>'
+```
+
+The following are [recommended permissions](https://docs.getdbt.com/reference/database-permissions/postgres-permissions) from dbt that can then be provided to the created user to properly read data and materialize models. Note that actions for destination schemas will need to be performed for **all potential destination schemas (target and any extensions)**
+
+Full documentation on [roles](https://www.postgresql.org/docs/current/user-manag.html) and [privileges](https://www.postgresql.org/docs/current/ddl-priv.html) that can be used for establishing more detailed permissions in postgres are linked for here for reference
+
+#### Note on VS Code Extension
+
+A popular extension for working with dbt core in VS Code is [Power User for dbt](https://marketplace.visualstudio.com/items?itemName=innoverio.vscode-dbt-power-user). This package will allow local development with auto completions and formatting of dbt configuration files and models. However, one problem that conflicts with how we have set up our instance is that the extension **does not read environment variables set in the VS Code terminal**. While development can still be done in VS Code, the extension will not provide core features based on how our connections are defined. If you plan to use this extension, it is reccomended to set up a dbt user with permissions as defined in the previous section, and utilize these values in `profiles.yml` for
+
+## Building up a dbt Model
+
+For this section - we will be building the innerworkings of our `ny_taxi_postgres` model by following along with the repo found [here](https://github.com/DataTalksClub/data-engineering-zoomcamp/tree/main/04-analytics-engineering/taxi_rides_ny). For the homework assignment, we will be working with the `ny_taxi_bigquery` model
+
+### Materializations
+
+There are four main types of data materializations in dbt
+* **Ephemeral**: temporary and exist only for the duration of a dbt run
+* **Table**: physical representations of data that are created in datawarehouse (like a SQL table)
+* **View**: similar to a SQL view, queryable like a table
+* **Incremental**: creates SQL table, but only inserts new records into the table
+
+dbt models are structured as variants of sql scripts, and each sql script will be compiled in the datawarehouse and executed. For example, the below code
+```sql
+{{ -- How to materialize the result
+  config(materialized='table')
+}}
+SELECT *
+FROM staging.source_table
+WHERE 1=1
+  AND record_state='ACTIVE
+```
+
+is compiled and executed in the datawarehouse as
+```sql
+-- my_schema=target in profile + any custom schema
+-- my_model is the name of the model file (sql script)
+CREATE TABLE my_schema.my_model AS (
+  SELECT *
+  FROM staging.source_table
+  WHERE 1=1
+    AND record_state='ACTIVE
+)
+```
+
+We will be materializing the models used in this example section as views. This can either be set at the as shown above, or by including a `+materialized:` argument to the `dbt_project.yml` file for specific model paths as shown below for our model folders. Note that the callout for materialization at the start of the file will override the defaults set in `dbt_project.yml`
+```yml
+ models:
+  ny_taxi_postgres:
+    # Config indicated by + and applies to all files under models/example/
+    example:
+      +materialized: view
+    # Configurations apply to all files under models/staging/
+    staging:
+      +materialized: view
+      +schema: staging # Adds _staging to target schema for where models are materialized
+    # Configurations apply to all files under models/core/
+    core:
+      +materialized: view
+      +schema: core # Adds _core to target schema for where models are materialized
+```
+ 
+We also have set `+schema` arguments for our `staging` and `core` model folders in the `dbt_project.yml` file. This will append the indicated value to the target schema in `profiles.yml` and set that as the default location for model materialization. As in `profiles.yml` our target schema is `ny_taxi`, models in the `staging` folder will be materialized in `ny_taxi_staging` and models in `core` will be materialized in `ny_taxi_core`
+ 
+<!-- We can define sources from 
+
+The `FROM` clause in the above statements is selecting from the sources defined in the `properties.yml` file described earlier. We can query these sources using jinja notation as
+```sql
+FROM {{ source('source-name', 'table_name') }}
+```
+
+With sources we can set things that can be tested such as allowable source freshness - which sets an allowable time from last records for the table to be considered "fresh". This can produce warnings or errors when the data is no longer fresh
+
+Seeds are another potential data feed that can be used in dbt models, which are csv files that dbt loads into models if called. Generally this is recommended for smaller datasets that do not change frequently
+
+Other models can also be called in the dbt `FROM` clause. These are accessed with the below command, and will trigger and compile the dependent model to be ran. Using this command allows us to keep code consistent between environments, and automatically build the dependencies between models
+```sql
+FROM {{ ref('model name')  }}
+``` -->
