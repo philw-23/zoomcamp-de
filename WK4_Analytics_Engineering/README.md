@@ -191,6 +191,7 @@ When `dbt-init` is ran in a folder to create an initial project, dbt will automa
 
 All local models for this course will be defined using the `airflow-env` in the `airflow` directory. The models are then mounted in docker to be accessible for use when running airflow 
 
+
 ### Creating a BigQuery dbt Model
 
 Before creating a local model, we want to ensure our `.env` variables are set so we can utilize them in our project initialization with jinja notation. Given that many of our parameters are specific for development on airflow, we will create a `.envlocal` file that contains the following parameters needed for local development
@@ -315,6 +316,10 @@ We note however that the above configuration will only work for local developmen
       type: postgres
       user: '{{ env_var(''PG_DWH_USER'') }}'
 ```
+We can test this connection using the `--target` parameter with the `dbt debug` command
+```bash
+$ dbt debug --target airflow_prod
+```
 
 When running models from airflow, we can then specify our desired target using the `--target` argument in `dbt run`
 ```bash
@@ -323,9 +328,14 @@ $ dbt run --target airflow_prod
 
 #### Admin vs. dbt User Permissions
 
-It should also be noted that using our admin postgres credentials for dbt is not best practice in production environments. A dbt user should be created in postgres with specific access permissions and roles. The following command will allow you to enter the running postgres container and run commands to create a user and set permissions
+It should be noted that using our admin postgres credentials for dbt is not best practice in production environments. A dbt user should be created in postgres with specific access permissions and roles. The following command will allow you to enter the running postgres container and run commands to create a user and set permissions
 ```bash
 $ docker exec -it <postgres container name> psql -U postgres
+```
+
+Individual SQL scripts can also be ran in PSQL using the following syntax
+```
+\i /path/to/your/file.sql
 ```
 
 To create a user login in postgres, the following commands can be used
@@ -335,11 +345,47 @@ CREATE USER <your dbt user> WITH PASSWORD '<your dbt user password>'
 
 The following are [recommended permissions](https://docs.getdbt.com/reference/database-permissions/postgres-permissions) from dbt that can then be provided to the created user to properly read data and materialize models. Note that actions for destination schemas will need to be performed for **all potential destination schemas (target and any extensions)**
 
+<!-- For the postgres models used in this section, the sql script `create_dbt_user_permissions.sql` can be ran in PSQL to create an account with the necessary permissions as well as create the necessary schemas -->
+
 Full documentation on [roles](https://www.postgresql.org/docs/current/user-manag.html) and [privileges](https://www.postgresql.org/docs/current/ddl-priv.html) that can be used for establishing more detailed permissions in postgres are linked for here for reference
+
+When using an individualized dbt user, the `dev` output for our original `profiles.yml` would instead look like this (other values were also swapped from environment variables)
+```yml
+ny_taxi_postgres: # Project name entered
+  outputs:
+    dev:
+      dbname: postgres
+      host: localhost
+      pass: <your dbt user password>
+      port: 5432
+      schema: ny_taxi
+      threads: 1
+      type: postgres
+      user: <your dbt user name>
+  target: dev
+```
+
+Note that if you define all the authentication values in your `profiles.yml` file, you **do not** need to set any environment variables prior to local development
 
 #### Note on VS Code Extension
 
-A popular extension for working with dbt core in VS Code is [Power User for dbt](https://marketplace.visualstudio.com/items?itemName=innoverio.vscode-dbt-power-user). This package will allow local development with auto completions and formatting of dbt configuration files and models. However, one problem that conflicts with how we have set up our instance is that the extension **does not read environment variables set in the VS Code terminal**. While development can still be done in VS Code, the extension will not provide core features based on how our connections are defined. If you plan to use this extension, it is reccomended to set up a dbt user with permissions as defined in the previous section, and utilize these values in `profiles.yml` for
+A popular extension for working with dbt core in VS Code is [Power User for dbt](https://marketplace.visualstudio.com/items?itemName=innoverio.vscode-dbt-power-user). This package will allow local development with auto completions and formatting of dbt configuration files and models. However, one problem that conflicts with how we have set up our instance is that the extension **does not read environment variables set in the VS Code terminal**. While development can still be done in VS Code, the extension will not provide core features based on how our connections are defined 
+
+For postgres - if you plan to use this extension, it is reccomended to set up a dbt user and `profiles.yml` as defined above
+
+For BigQuery - the existing `dev` profile should be changed to be `airflow_prod` as this configuration will work as-is in airflow. The `dev` profile should be updated to look like the following
+```yml
+ny_taxi_bigquery:
+  target: dev
+  outputs:
+    dev:
+      type: bigquery
+      method: service-account
+      project: <your gcp project name>
+      dataset: ny_taxi
+      threads: 1
+      keyfile: your/path/to/local_keyfile.json # This must be a full path - cannot use ~ linux syntax
+```
 
 ## Building up a dbt Model
 
@@ -391,22 +437,3 @@ We will be materializing the models used in this example section as views. This 
     core:
       +materialized: view
       +schema: core # Adds _core to target schema for where models are materialized
-```
- 
-We also have set `+schema` arguments for our `staging` and `core` model folders in the `dbt_project.yml` file. This will append the indicated value to the target schema in `profiles.yml` and set that as the default location for model materialization. As in `profiles.yml` our target schema is `ny_taxi`, models in the `staging` folder will be materialized in `ny_taxi_staging` and models in `core` will be materialized in `ny_taxi_core`
- 
-<!-- We can define sources from 
-
-The `FROM` clause in the above statements is selecting from the sources defined in the `properties.yml` file described earlier. We can query these sources using jinja notation as
-```sql
-FROM {{ source('source-name', 'table_name') }}
-```
-
-With sources we can set things that can be tested such as allowable source freshness - which sets an allowable time from last records for the table to be considered "fresh". This can produce warnings or errors when the data is no longer fresh
-
-Seeds are another potential data feed that can be used in dbt models, which are csv files that dbt loads into models if called. Generally this is recommended for smaller datasets that do not change frequently
-
-Other models can also be called in the dbt `FROM` clause. These are accessed with the below command, and will trigger and compile the dependent model to be ran. Using this command allows us to keep code consistent between environments, and automatically build the dependencies between models
-```sql
-FROM {{ ref('model name')  }}
-``` -->
