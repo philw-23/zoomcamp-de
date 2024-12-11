@@ -76,6 +76,19 @@ For the models section specifically, below is an example from the linked file wi
 * `tags` are values applied to a resource that can be used via resource selection
   * For example, `dbt run --select tag:daily` would run all models in `staging` as they have this tag assigned
 
+### Configuration File - packages.yml
+
+The `packages.yml` file is where pre-build dbt models and functions can be defined for use in other models. These can be loaded by running the `dbt deps` command after defining the file. Below is an example with two packages we will use in our postgres dbt walkthrough later on
+```yml
+packages:
+  - package: dbt-labs/dbt_utils
+    version: 1.3.0
+  - package: dbt-labs/codegen
+    version: 0.13.1
+```
+
+You can also define a `projects:` section in this file, which will enable loading of specific projects from github as dependencies
+
 ### Configuration File - properties.yml (formerly schema.yml)
 
 The `properties.yml` file (formerly know as `schema.yml`, can be named anything) allows you to define metadata and properties for models, sources, and other resources in your project. Full documentation from dbt with an example file that we will be referencing can be found [here](https://docs.getdbt.com/reference/configs-and-properties)
@@ -387,9 +400,20 @@ ny_taxi_bigquery:
       keyfile: your/path/to/local_keyfile.json # This must be a full path - cannot use ~ linux syntax
 ```
 
-## Building up a dbt Model
+## Example - Building up our Postgres dbt Model
 
 For this section - we will be building the innerworkings of our `ny_taxi_postgres` model by following along with the repo found [here](https://github.com/DataTalksClub/data-engineering-zoomcamp/tree/main/04-analytics-engineering/taxi_rides_ny). For the homework assignment, we will be working with the `ny_taxi_bigquery` model
+
+### Loading Dependencies
+
+The following `packages.yml` file was created for our model to load the `codegen` and `dbt_utils` packages for use. These were installed using `dbt deps`
+```yml
+packages:
+  - package: dbt-labs/dbt_utils
+    version: 1.3.0
+  - package: dbt-labs/codegen
+    version: 0.13.1
+```
 
 ### Materializations
 
@@ -437,3 +461,25 @@ We will be materializing the models used in this example section as views. This 
     core:
       +materialized: view
       +schema: core # Adds _core to target schema for where models are materialized
+```
+
+### Generating Sources
+
+dbt allows the definition of sources in a `properties.yml` file such that queries can reference these instead of hard coded table names. Generally these files are defined for each specific folder of your model structure, however sources can be used across model folders. For example, if we define a table as a source in a `properties.yml` file within our `models/staging/` folder, we can use the following syntax
+```sql
+FROM {{ source('staging', '<your table name>')}}
+```
+
+instead of
+```sql
+FROM your_table_name
+```
+
+This can help with maintaining definition consistency across models, and allows dbt to track data lineage throughout transformations. Sources can also have tests defined, which helps with data validation prior to loading to models
+
+The `codegen` package loaded earlier can also be used to help generate the source documentation yml needed for the file. Full documentation on using this package can be found [here](https://github.com/dbt-labs/dbt-codegen/tree/0.13.1/#generate_source-source), but we will be using the following command with our source schema and list of source tables
+```bash
+$ dbt run-operation generate_source --args '{"schema_name": "ny_taxi_raw", "database_name": "postgres", "table_names":["green_data_2019", "green_data_2020", "yellow_data_2019", "fhv_data_2019", "fhv_data_2020"]}'
+```
+
+The above command will output yml that can then be pasted directly into the `properties.yml` file to define our sources!
