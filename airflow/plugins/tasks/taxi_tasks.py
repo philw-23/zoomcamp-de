@@ -122,7 +122,8 @@ def write_urls_to_bucket(url_list, bucket_suffix, bucket_folders, force_overwrit
                          taxi_type):
     # Import required packages
     import time
-    import pandas as pd
+    # import pandas as pd
+    import pyarrow as pa
     import pyarrow.parquet as pq
     from google.cloud import storage
     from concurrent.futures import ThreadPoolExecutor
@@ -141,6 +142,16 @@ def write_urls_to_bucket(url_list, bucket_suffix, bucket_folders, force_overwrit
     # Creates generator for data chunks
     def yield_url_files(url_list, chunk_size):
         for year, url_vals in url_list.items():
+
+            # Files may have different schemas - enforce each to have the same schema
+            # Get first URL for schema
+            download_from_url('./SCHEMA_PULL.parquet', url_vals[0]) # Use first schema
+            schema_file = pq.ParquetFile('./SCHEMA_PULL.parquet')
+            core_schema = schema_file.schema
+            core_schema = core_schema.to_arrow_schema()
+            del schema_file # Save memory
+            os.remove('./SCHEMA_PULL.parquet') # Remove file
+
             # Iterate over all urls
             for url in url_vals:
                 # Create base table name
@@ -149,12 +160,12 @@ def write_urls_to_bucket(url_list, bucket_suffix, bucket_folders, force_overwrit
                 folder_path = year + '/' + table_name # For checking existence
 
                 # Yield results
-                yield table_name, folder_path, url, year, chunk_size
+                yield core_schema, table_name, folder_path, url, year, chunk_size
 
     # Writes generator batch to postgres
     def write_url_to_gcs(inputs):
         # Get inputs
-        folder_name, folder_path, url, year, chunk_size = inputs
+        core_schema, folder_name, folder_path, url, year, chunk_size = inputs
 
         # Check if we already have table in GCS
         # Check if we already have folder and are not force overwriting
@@ -168,7 +179,7 @@ def write_urls_to_bucket(url_list, bucket_suffix, bucket_folders, force_overwrit
         # Temp filename to use
         tmp_fpath = f'./{folder_name}.parquet'
 
-        # print(f'For year {year}: writing chunk {idx} of {url} to {table_name}')
+        # Pull URL
         print(f'For {year}, {folder_name}: DOWNLOADING file from {url}')
         download_from_url(tmp_fpath, url)
         
@@ -179,9 +190,9 @@ def write_urls_to_bucket(url_list, bucket_suffix, bucket_folders, force_overwrit
         batches = parquet_file.iter_batches(batch_size=chunk_size)
         for idx, batch in enumerate(batches):
             print(f'For {year}, {folder_name}: WRITING chunk {idx} of {url} to GCS')
-            pd_chunk = batch.to_pandas()
             chunk_fname = f'./tmp_{folder_name}_chunk_{idx}.parquet' # File name for local chunk
-            pd_chunk.to_parquet(chunk_fname) # Write to local file
+            pa_chunk = pa.Table.from_batches([batch], schema=core_schema) # Create table
+            pq.write_table(pa_chunk, chunk_fname) # Write parquet file to chunk
             blob_name = f'{year}/{folder_name}/chunk_{idx}.parquet' # chunk name for GCS write
             blob = bucket.blob(blob_name) # Define blob for upload
             blob.upload_from_filename(chunk_fname) # Upload blob from filename
@@ -195,7 +206,7 @@ def write_urls_to_bucket(url_list, bucket_suffix, bucket_folders, force_overwrit
         print(f'For {year}, {folder_name}: DELETED local file {tmp_fpath}')
 
     # Set chunk size for parquet iterating
-    chunk_size = 2 * 65536 # Number of rows to iterate
+    chunk_size = 2 * 65536 # Number of rowOks to iterate
 
     # Multiprocess - no workers specified
     with ThreadPoolExecutor() as executor:
@@ -236,10 +247,6 @@ def write_data_to_postgres(url_list, taxi_type, tgt_schema):
                 with conn.begin(): # Execute
                     conn.execute(CreateSchema(tgt_schema, if_not_exists=True))
 
-    # Creates table if it doesn't exist - enables use of copy method
-    def create_postgres_table(table_name, schema_url):
-        pass
-
     # Creates generator for data chunks
     def yield_url_files(url_list, chunk_size):
         for year, url_vals in url_list.items():
@@ -259,7 +266,6 @@ def write_data_to_postgres(url_list, taxi_type, tgt_schema):
                 schema_parquet = pq.ParquetFile(schema_path) # Create parquet
                 schema_chunk = next(schema_parquet.iter_batches(batch_size=10000)) # Get a small chunk
                 schema_df = schema_chunk.to_pandas() # Convert to pandas
-                print(len(schema_df))
 
                 # Get schema creation command and execute
                 schema_create = pd.io.sql.get_schema(
@@ -372,7 +378,7 @@ def write_gcs_to_bigquery(tgt_dataset, years, bucket_suffix, taxi_type, input_da
     # Bucket name for matching gcs format
     bucket_name = f'{bq_client.project}-{bucket_suffix}'
 
-    # Create an external table for each year
+    # Create an external table and materialized table for each year
     for year in years:
         # Create external source format
         external_source_format = input_data_type
@@ -382,7 +388,22 @@ def write_gcs_to_bigquery(tgt_dataset, years, bucket_suffix, taxi_type, input_da
 
         # Create external table
         external_table_name = f'{taxi_type}_{year}_external'
+        bq_client.delete_table( # Delete table if exists
+            f'{dataset_path}.{external_table_name}',
+            not_found_ok=True
+        )
         table = bigquery.Table(f'{dataset_path}.{external_table_name}') # Initialize table
         table.external_data_configuration = external_config # Assign external config
         table = bq_client.create_table(table)
         print(f'CREATED external BigQuery table {external_table_name}')
+
+        # Create materialized table
+        mat_table_name = f'{taxi_type}_{year}'
+        table_create = f'''
+            CREATE OR REPLACE TABLE {dataset_path}.{mat_table_name} AS
+            SELECT *
+            FROM {dataset_path}.{external_table_name}
+        '''
+        query = bq_client.query(table_create)
+        query.result()
+        print(f'Materialized table {dataset_path}.{mat_table_name} successfully created')
