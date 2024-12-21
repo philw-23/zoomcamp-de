@@ -400,9 +400,9 @@ ny_taxi_bigquery:
       keyfile: your/path/to/local_keyfile.json # This must be a full path - cannot use ~ linux syntax
 ```
 
-## Example - Building up our Postgres dbt Model
+## Example - Building up our BigQuery dbt Model
 
-For this section - we will be building the innerworkings of our `ny_taxi_postgres` model by following along with the repo found [here](https://github.com/DataTalksClub/data-engineering-zoomcamp/tree/main/04-analytics-engineering/taxi_rides_ny). For the homework assignment, we will be working with the `ny_taxi_bigquery` model
+For this section - we will be building the innerworkings of our `ny_taxi_bigquery` model by following along with the repo found [here](https://github.com/DataTalksClub/data-engineering-zoomcamp/tree/main/04-analytics-engineering/taxi_rides_ny). For the homework assignment, we will be working with the `ny_taxi_bigquery` model
 
 ### Loading Dependencies
 
@@ -449,7 +449,7 @@ CREATE TABLE my_schema.my_model AS (
 We will be materializing the models used in this example section as views. This can either be set at the as shown above, or by including a `+materialized:` argument to the `dbt_project.yml` file for specific model paths as shown below for our model folders. Note that the callout for materialization at the start of the file will override the defaults set in `dbt_project.yml`
 ```yml
  models:
-  ny_taxi_postgres:
+  ny_taxi_bigquery:
     # Config indicated by + and applies to all files under models/example/
     example:
       +materialized: view
@@ -479,7 +479,7 @@ This can help with maintaining definition consistency across models, and allows 
 
 The `codegen` package loaded earlier can also be used to help generate the source documentation yml needed for the file. Full documentation on using this package can be found [here](https://github.com/dbt-labs/dbt-codegen/tree/0.13.1/#generate_source-source), but we will be using the following command with our source schema and list of source tables
 ```bash
-$ dbt run-operation generate_source --args '{"schema_name": "ny_taxi_raw", "database_name": "postgres", "table_names":["green_data_2019", "green_data_2020", "yellow_data_2019", "fhv_data_2019", "fhv_data_2020"]}'
+$ dbt run-operation generate_source --args '{"schema_name": "ny_taxi_raw", "table_names":["green_2019", "green_2020", "yellow_2019", "yellow_2020", "fhv_2019", "fhv_2020"]}'
 ```
 
 The above command will output yml that can then be pasted directly into the `properties.yml` file to define our sources!
