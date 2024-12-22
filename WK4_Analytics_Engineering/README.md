@@ -509,3 +509,22 @@ Note that this is an in-line definition of the variable `is_test_run`, which can
 ```bash
 $ dbt build --select <model_name> --vars '{'is_test_run': 'false'}'
 ```
+
+### Example Model File - `fact_trips.sql`
+
+This model file in our `core` folder builds off the yellow and green staging models we discussed in the previous section. Note that we can call results from dependent models in subsequent models using the `{{ ref() }}` command in the SQL `FROM` clause. For example, to use the results from our `stg_green_tripdata.sql` model, we would use the following code
+```sql
+FROM {{ ref('stg_green_tripdata') }}
+```
+
+Models can be ran with all lower level dependencies using the following command syntax. Vars passed to this command using the `--vars` argument will be flowed down and applied where applicable
+```bash
+$ dbt build --select +<top level model name>
+```
+
+One additional concept added in this is the use of `seeds`. These are effectively CSV files that can be loaded in to models as datasets, and are most optimally used for smaller, low change dataset. For our models we will be loading the taxi zone lookup csv file as a seed. The `taxi_zone_lookup.csv` (seed file) is placed in the `seeds` folder of our project, and it can then be loaded and used in our models using the `{{ ref() }}` command as described above. We will also materialize this as a table in our end database using the `core/dim_zones.sql` model
+
+The `core/fact_trips.sql` model highlights using the dependency logic described above. One final note is that we can use the codegen package to generate documentation for models in a specific folder similarly to what was done for sources. The below command will output details on provided model files for a given folder, which can then be added to the `properties.yml` file for the desired directory
+```bash
+$ dbt run-operation generate_model_yaml --args '{"model_names": [<your model names here>]}'
+```
