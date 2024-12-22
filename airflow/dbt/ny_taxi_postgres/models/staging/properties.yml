@@ -1,0 +1,15 @@
+version: 2
+
+sources:
+  - name: staging
+    schema: ny_taxi_raw
+    
+    tables:
+        # Green taxi tables
+        - name: green_data_2019
+        - name: green_data_2020
+        # Yellow taxi tables
+        - name: yellow_data_2019
+        # FHV data
+        - name: fhv_data_2019
+        - name: fhv_data_2020

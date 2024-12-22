@@ -189,9 +189,12 @@ def write_urls_to_bucket(url_list, bucket_suffix, bucket_folders, force_overwrit
         # Iterate over chunks
         batches = parquet_file.iter_batches(batch_size=chunk_size)
         for idx, batch in enumerate(batches):
-            print(f'For {year}, {folder_name}: WRITING chunk {idx} of {url} to GCS')
+            if (idx == 0) or (idx % 10 == 0):
+                print(f'For {year}, {folder_name}: WRITING chunk {idx} of {url} to GCS')
             chunk_fname = f'./tmp_{folder_name}_chunk_{idx}.parquet' # File name for local chunk
-            pa_chunk = pa.Table.from_batches([batch], schema=core_schema) # Create table
+            pa_chunk = pa.Table.from_batches([batch]) # Create table
+            if pa_chunk.schema != core_schema: # Update schema if we need to
+                pa_chunk = pa_chunk.cast(core_schema)
             pq.write_table(pa_chunk, chunk_fname) # Write parquet file to chunk
             blob_name = f'{year}/{folder_name}/chunk_{idx}.parquet' # chunk name for GCS write
             blob = bucket.blob(blob_name) # Define blob for upload
@@ -206,7 +209,7 @@ def write_urls_to_bucket(url_list, bucket_suffix, bucket_folders, force_overwrit
         print(f'For {year}, {folder_name}: DELETED local file {tmp_fpath}')
 
     # Set chunk size for parquet iterating
-    chunk_size = 2 * 65536 # Number of rowOks to iterate
+    chunk_size = 65536 # Number of rows to iterate
 
     # Multiprocess - no workers specified
     with ThreadPoolExecutor() as executor:

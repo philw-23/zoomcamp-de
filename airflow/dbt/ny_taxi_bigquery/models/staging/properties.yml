@@ -1,0 +1,9 @@
+sources:
+  - name: ny_taxi_raw
+    tables:
+      - name: green_2019
+      - name: green_2020
+      - name: yellow_2019
+      - name: yellow_2020
+      - name: fhv_2019
+      - name: fhv_2020

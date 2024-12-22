@@ -483,3 +483,29 @@ $ dbt run-operation generate_source --args '{"schema_name": "ny_taxi_raw", "tabl
 ```
 
 The above command will output yml that can then be pasted directly into the `properties.yml` file to define our sources!
+
+### Macros
+
+Macros are effectively custom sql code pieces that can be reused across multiple models. These can function as things such as resusable case statements, filter clauses, or aggregation statements. An example found in the `nyc_taxi_bigquery` model is `get_payment_type_description.sql`, which serves as case statement to add a description based on the payment type code
+
+### Example Model File - `stg_green_tripdata.sql`
+
+The `stg_green_tripdata.sql` highlights use cases for some of the dbt functionality previously discussed in this document
+* `{{ config(materialized='view') }}` specified the materialization of the model as a view
+* The `dbt_utils.generate_surrogate_key(['vendorid', 'lpep_pickup_datetime'])` utilizes a loaded function from the `dbt_utils` package to create a surrogate primary key in the analytics layer
+* `FROM` statments utilize `{{ source('staging', 'green_2019') }}` and `{{ source('staging', 'green_2019') }}` for model and source consistency
+*  The `{{ get_payment_type_description("payment_type") }}` applies our defined macro to assign a description of the payment type
+
+One additional item not previously covered is the use of dbt variables. The below code snippet at the end of the code enforces a limit of 100 on the model materialization if the variable `is_test_run` is set to `true`
+```sql
+{% if var('is_test_run', default=true) %}
+
+  limit 100
+
+{% endif %}
+```
+
+Note that this is an in-line definition of the variable `is_test_run`, which can only be used in this model. Variables can also be defined globally in the `dbt_project.yml` file as described [here](https://docs.getdbt.com/docs/build/project-variables) so they are accesible to all models. Variables can be specified using the `--vars` argument as shown below. If no variable is specified, the default will be used
+```bash
+$ dbt build --select <model_name> --vars '{'is_test_run': 'false'}'
+```
