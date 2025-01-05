@@ -522,7 +522,7 @@ Models can be ran with all lower level dependencies using the following command 
 $ dbt build --select +<top level model name>
 ```
 
-One additional concept added in this is the use of `seeds`. These are effectively CSV files that can be loaded in to models as datasets, and are most optimally used for smaller, low change dataset. For our models we will be loading the taxi zone lookup csv file as a seed. The `taxi_zone_lookup.csv` (seed file) is placed in the `seeds` folder of our project, and it can then be loaded and used in our models using the `{{ ref() }}` command as described above. We will also materialize this as a table in our end database using the `core/dim_zones.sql` model
+One additional concept added in this is the use of `seeds`. These are effectively CSV files that can be loaded in to models as datasets, and are most optimally used for smaller, low change dataset. For our models we will be loading the taxi zone lookup csv file as a seed. The `taxi_zone_lookup.csv` (seed file) is placed in the `seeds` folder of our project, and it can then be loaded and used in our models using the `{{ ref() }}` command as described above. We will also materialize this as a table in our end database using the `core/dim_zones.sql` model. Seeds can be loaded into the target schema using the `dbt seed` command
 
 The `core/fact_trips.sql` model highlights using the dependency logic described above. One final note is that we can use the codegen package to generate documentation for models in a specific folder similarly to what was done for sources. The below command will output details on provided model files for a given folder, which can then be added to the `properties.yml` file for the desired directory
 ```bash
